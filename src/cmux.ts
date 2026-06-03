@@ -257,26 +257,32 @@ export function submit(target: Target, text: string): void {
 
 /**
  * Submit a prompt into a Claude Code TUI reliably. cmux `send` arrives as a
- * bracketed paste, so Claude collapses it ("paste again to expand") and the
- * first Enter expands rather than submits — regardless of length. Send the
- * text + Enter, then re-send Enter while the collapse indicator is still shown.
- * (A length threshold misses short-but-collapsed prompts; detecting the
- * indicator is what's reliable.)
+ * bracketed paste; an Enter sent too soon lands INSIDE the paste (becoming a
+ * newline in the input) instead of submitting, so messages just pile up in the
+ * box. So: type the text, let the paste settle, press Enter, then VERIFY the
+ * input actually cleared — re-pressing Enter until our text is no longer sitting
+ * in the input region. (Checking the input cleared is the only reliable signal;
+ * the "paste again to expand" collapse indicator only covers one failure mode.)
  */
 export function submitToClaude(target: Target, text: string): void {
   sendText(target, text);
+  sleepMs(450); // let the bracketed paste settle before Enter
   sendKey(target, "Enter");
-  const collapsed = /paste again to expand|\[pasted text/i;
-  for (let i = 0; i < 3; i++) {
+
+  // A distinctive, whitespace-normalized chunk of the message. If it's still in
+  // the bottom of the screen (the input box), the prompt wasn't submitted yet.
+  const probe = text.replace(/\s+/g, " ").trim().slice(0, 28);
+  for (let i = 0; i < 6; i++) {
+    sleepMs(450);
     let screen = "";
     try {
-      screen = readScreen(target, 12);
+      screen = readScreen(target, 20);
     } catch {
       return;
     }
-    if (!collapsed.test(screen)) return; // submitted
-    sendKey(target, "Enter");
-    sleepMs(300);
+    const tail = screen.split("\n").slice(-9).join("\n").replace(/\s+/g, " ");
+    if (probe.length < 4 || !tail.includes(probe)) return; // left the input → submitted
+    sendKey(target, "Enter"); // still in the input box → nudge again
   }
 }
 
