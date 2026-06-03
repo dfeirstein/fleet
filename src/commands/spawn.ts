@@ -2,8 +2,8 @@
 // it (via cmux's --command, under the orchestrator's Max-plan session), and
 // register it in the fleet.
 import { randomBytes } from "node:crypto";
-import { newWorkspace, waitForTerminal } from "../cmux.js";
-import { upsert, type Agent } from "../registry.js";
+import { newWorkspace, waitForTerminal, closeWorkspace } from "../cmux.js";
+import { upsert, remove, type Agent } from "../registry.js";
 
 export interface SpawnOptions {
   task: string;
@@ -54,9 +54,8 @@ export function spawn(opts: SpawnOptions): Agent {
   // Create the workspace and let cmux launch the program in its terminal.
   const ws = newWorkspace({ name: label, cwd: opts.cwd, command, focus: false });
 
-  // Block until the terminal is live so callers can immediately read/steer it.
-  waitForTerminal(ws.workspaceId);
-
+  // Register immediately so the worker is tracked even if boot fails — a
+  // created-but-unregistered workspace would be an untrackable orphan.
   const agent: Agent = {
     agentId,
     label,
@@ -72,5 +71,20 @@ export function spawn(opts: SpawnOptions): Agent {
     spawnedAt: new Date().toISOString(),
   };
   upsert(agent);
+
+  // Block until the terminal is live so callers can immediately read/steer it.
+  // If it never boots, tear the workspace down rather than leak it.
+  try {
+    waitForTerminal(ws.workspaceId);
+  } catch (err) {
+    try {
+      closeWorkspace(ws.workspaceId);
+    } catch {
+      // best-effort cleanup
+    }
+    remove(agentId);
+    throw err;
+  }
+
   return agent;
 }

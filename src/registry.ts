@@ -5,8 +5,10 @@
 // crash mid-write can't corrupt the registry. Full O_EXCL locking for multiple
 // concurrent orchestrators is a later-phase concern (see plan).
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 export type AgentStatus = "running" | "idle" | "awaiting-input" | "error" | "rate-limited" | "unknown" | "dead";
 
@@ -32,8 +34,29 @@ interface RegistryFile {
   agents: Record<string, Agent>;
 }
 
+/**
+ * The fleet session — one registry per project so orchestrators in different
+ * repos don't see each other's workers. Explicit FLEET_SESSION wins; otherwise
+ * derive a stable id from the project root (git toplevel, else cwd): a readable
+ * basename plus a short path hash to avoid collisions between same-named dirs.
+ */
 function sessionId(): string {
-  return process.env.FLEET_SESSION || "default";
+  if (process.env.FLEET_SESSION) return process.env.FLEET_SESSION;
+  const root = projectRoot();
+  const slug = basename(root).replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "root";
+  const hash = createHash("sha1").update(root).digest("hex").slice(0, 8);
+  return `${slug}-${hash}`;
+}
+
+function projectRoot(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return process.cwd();
+  }
 }
 
 function registryDir(): string {
