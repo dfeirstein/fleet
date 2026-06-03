@@ -9,6 +9,7 @@ import { snapshot, renderTable } from "./commands/status.js";
 import { kill, killAll } from "./commands/kill.js";
 import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
 import { resume } from "./commands/resume.js";
+import { orchestrate } from "./commands/orchestrate.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
 import { notifyOrchestrator } from "./commands/notify.js";
 import { clearDashboard } from "./dashboard.js";
@@ -76,6 +77,8 @@ Commands:
                                              prints transitions + sidebar dash
         [--no-until-idle]                    Keep watching (don't exit on idle)
   kill <agent | --all>                       Stop a worker and clean up
+  orchestrate [name]                         Declare a new orchestrator workspace
+                                             (a badged control plane you talk to)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
                                              stuck/zombie detection, escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
@@ -145,6 +148,14 @@ function main(): void {
     case "status":
     case "ls": {
       console.log(renderTable(snapshot()));
+      break;
+    }
+    case "orchestrate": {
+      const name = positionals.join(" ").trim() || "Orchestrator";
+      const rec = orchestrate(name);
+      console.log(`🎛 Orchestrator "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
+      console.log(`Switch to the "🎛 ${rec.name}" workspace in cmux and talk to it to orchestrate.`);
+      console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
       break;
     }
     case "resume": {
