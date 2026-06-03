@@ -94,6 +94,18 @@ export function handle(agent: Agent): string {
   return agent.workspaceId ?? agent.workspace;
 }
 
+/**
+ * The addressing target for read/send: workspace + the worker's TERMINAL
+ * surface. Both are needed so ops still hit the terminal after browser
+ * surfaces are added to the workspace. UUIDs preferred (stable across renumber).
+ */
+export function target(agent: Agent): { workspace: string; surface?: string } {
+  return {
+    workspace: agent.workspaceId ?? agent.workspace,
+    surface: agent.surfaceId ?? agent.surface,
+  };
+}
+
 export function listAgents(): Agent[] {
   return Object.values(load().agents).sort((a, b) => a.spawnedAt.localeCompare(b.spawnedAt));
 }

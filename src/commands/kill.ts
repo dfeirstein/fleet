@@ -1,13 +1,13 @@
 // `fleet kill <agent|--all>` — stop a worker and clean up its cmux workspace.
 import { sendKey, closeWorkspace, workspaceExists } from "../cmux.js";
-import { listAgents, resolveAgent, remove, handle, type Agent } from "../registry.js";
+import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
 
 function killOne(agent: Agent): void {
   const h = handle(agent);
   if (workspaceExists(h)) {
     // Interrupt whatever the worker is doing first, then close its workspace.
     try {
-      sendKey(h, "ctrl+c");
+      sendKey(target(agent), "ctrl+c");
     } catch {
       // terminal may already be gone; fall through to close
     }

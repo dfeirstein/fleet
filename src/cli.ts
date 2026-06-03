@@ -6,6 +6,8 @@ import { read } from "./commands/read.js";
 import { send } from "./commands/send.js";
 import { snapshot, renderTable } from "./commands/status.js";
 import { kill, killAll } from "./commands/kill.js";
+import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
+import { clearDashboard } from "./dashboard.js";
 import { CmuxError } from "./cmux.js";
 
 /** Minimal flag parser: returns { flags, positionals }. Supports --k v and --k=v and --bool. */
@@ -59,7 +61,10 @@ Commands:
 
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
-  status                                     Live fleet dashboard
+  status                                     Snapshot fleet table
+  watch [--interval N] [--timeout N]         Poll until the fleet is idle;
+                                             prints transitions + sidebar dash
+        [--no-until-idle]                    Keep watching (don't exit on idle)
   kill <agent | --all>                       Stop a worker and clean up
 
 Agents are matched by id, id-prefix, or label.`;
@@ -108,9 +113,19 @@ function main(): void {
       console.log(renderTable(snapshot()));
       break;
     }
+    case "watch": {
+      watch({
+        untilIdle: flags["no-until-idle"] !== true,
+        intervalActive: str(flags.interval) ? Number(str(flags.interval)) : WATCH_DEFAULTS.intervalActive,
+        intervalIdle: str(flags.interval) ? Number(str(flags.interval)) : WATCH_DEFAULTS.intervalIdle,
+        timeoutSec: str(flags.timeout) ? Number(str(flags.timeout)) : WATCH_DEFAULTS.timeoutSec,
+      });
+      break;
+    }
     case "kill": {
       if (flags.all === true) {
         const n = killAll();
+        clearDashboard();
         console.log(`killed ${n} agent(s)`);
       } else {
         const agent = positionals[0];

@@ -1,6 +1,6 @@
 // `fleet status` — the Fleet Dashboard. Merges the registry with a live cmux
 // read so the orchestrator sees real state, not just what it last recorded.
-import { listAgents, patch, handle } from "../registry.js";
+import { listAgents, patch, handle, target } from "../registry.js";
 import { workspaceExists } from "../cmux.js";
 import { probeStatus } from "../status.js";
 
@@ -32,7 +32,7 @@ export function snapshot(): FleetRow[] {
     if (!workspaceExists(handle(a))) {
       status = "dead";
     } else {
-      status = probeStatus(handle(a)).status;
+      status = probeStatus(target(a)).status;
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });
     rows.push({

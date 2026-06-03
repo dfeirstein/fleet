@@ -146,56 +146,67 @@ function sleepMs(ms: number): void {
   execFileSync("sleep", [(ms / 1000).toFixed(3)]);
 }
 
-// ── Addressing note ───────────────────────────────────────────────────────
-// Workers are addressed by their WORKSPACE handle (UUID preferred — it's stable
-// even as `workspace:N` / `surface:N` refs get renumbered when workspaces churn).
-// A default worker owns one workspace with one terminal surface, so `--workspace`
-// unambiguously resolves to that terminal. Surface-ref addressing proved fragile
-// across create/close cycles; we avoid it for steering.
+// ── Addressing ────────────────────────────────────────────────────────────
+// Workers are addressed by a Target = { workspace, surface } (UUIDs preferred —
+// stable across ref renumbering). We pass BOTH --workspace and --surface on
+// every read/send: `--workspace` alone resolves to the focused pane's selected
+// surface, which breaks once the workspace also holds a browser surface
+// ("Surface is not a terminal"). `--surface` alone is unreliable in this build;
+// `--workspace <ws> --surface <terminal>` is the combination that works.
+export interface Target {
+  workspace: string;
+  surface?: string;
+}
+
+function addr(t: Target): string[] {
+  const a = ["--workspace", t.workspace];
+  if (t.surface) a.push("--surface", t.surface);
+  return a;
+}
 
 /**
- * Wait until a workspace's terminal has booted and can be read. cmux boots a
+ * Wait until a worker's terminal has booted and can be read. cmux boots a
  * background workspace's PTY lazily, so `new-workspace` returns before the
  * terminal is live. Polls read-screen (the op that requires a live terminal).
  */
-export function waitForTerminal(workspace: string, timeoutMs = 15000): void {
+export function waitForTerminal(target: Target, timeoutMs = 15000): void {
   const deadline = Date.now() + timeoutMs;
   let lastErr = "";
   while (Date.now() < deadline) {
     try {
       // Wait for non-empty content: the PTY can report "live" a beat before the
       // shell prompt / launched command has actually rendered anything.
-      const screen = cmux(["read-screen", "--workspace", workspace, "--lines", "3"]);
+      const screen = cmux(["read-screen", ...addr(target), "--lines", "3"]);
       if (screen.trim().length > 0) return;
     } catch (err) {
       lastErr = (err as Error).message;
     }
     sleepMs(200);
   }
-  throw new Error(`workspace ${workspace} terminal never became live: ${lastErr}`);
+  throw new Error(`workspace ${target.workspace} terminal never became live: ${lastErr}`);
 }
 
-/** Read the visible screen (or scrollback) of a workspace's active surface. */
-export function readScreen(workspace: string, lines = 50, scrollback = false): string {
-  const args = ["read-screen", "--workspace", workspace, "--lines", String(lines)];
+/** Read the visible screen (or scrollback) of a worker's terminal. */
+export function readScreen(target: Target, lines = 50, scrollback = false): string {
+  const args = ["read-screen", ...addr(target), "--lines", String(lines)];
   if (scrollback) args.push("--scrollback");
   return cmux(args);
 }
 
-/** Type literal text into a workspace's active surface (does NOT press Enter). */
-export function sendText(workspace: string, text: string): void {
-  cmux(["send", "--workspace", workspace, text]);
+/** Type literal text into a worker's terminal (does NOT press Enter). */
+export function sendText(target: Target, text: string): void {
+  cmux(["send", ...addr(target), text]);
 }
 
-/** Send a named key (e.g. "Enter", "ctrl+c") to a workspace's active surface. */
-export function sendKey(workspace: string, key: string): void {
-  cmux(["send-key", "--workspace", workspace, key]);
+/** Send a named key (e.g. "Enter", "ctrl+c") to a worker's terminal. */
+export function sendKey(target: Target, key: string): void {
+  cmux(["send-key", ...addr(target), key]);
 }
 
 /** Type text then submit it with Enter — the common "talk to the agent" op. */
-export function submit(workspace: string, text: string): void {
-  sendText(workspace, text);
-  sendKey(workspace, "Enter");
+export function submit(target: Target, text: string): void {
+  sendText(target, text);
+  sendKey(target, "Enter");
 }
 
 /** Close a workspace by handle. */

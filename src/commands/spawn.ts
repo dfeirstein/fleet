@@ -2,7 +2,8 @@
 // it (via cmux's --command, under the orchestrator's Max-plan session), and
 // register it in the fleet.
 import { randomBytes } from "node:crypto";
-import { newWorkspace, waitForTerminal, closeWorkspace } from "../cmux.js";
+import { execFileSync } from "node:child_process";
+import { newWorkspace, waitForTerminal, closeWorkspace, readScreen, submit, type Target } from "../cmux.js";
 import { upsert, remove, type Agent } from "../registry.js";
 
 // Worker permission posture:
@@ -36,6 +37,31 @@ function shellSingleQuote(s: string): string {
 
 function newAgentId(): string {
   return randomBytes(4).toString("hex");
+}
+
+/**
+ * The first `--dangerously-skip-permissions` launch shows a one-time
+ * "Bypass Permissions mode" accept dialog (default highlighted: "No, exit").
+ * Without this, a --yolo worker stalls instead of starting. Poll briefly and
+ * select "Yes, I accept" (option 2) if the dialog appears.
+ */
+function acceptBypassDialog(target: Target): boolean {
+  for (let i = 0; i < 15; i++) {
+    let screen = "";
+    try {
+      screen = readScreen(target, 30);
+    } catch {
+      // terminal not ready yet
+    }
+    if (/Bypass Permissions mode/i.test(screen) && /Yes, I accept/i.test(screen)) {
+      submit(target, "2"); // select option 2 and confirm
+      return true;
+    }
+    // Already past the dialog (status bar shows the mode, or it's working).
+    if (/bypass permissions on|esc to interrupt/i.test(screen)) return false;
+    execFileSync("sleep", ["0.4"]);
+  }
+  return false;
 }
 
 /** Build the Claude Code launch command line for a worker. */
@@ -85,7 +111,7 @@ export function spawn(opts: SpawnOptions): Agent {
   // Block until the terminal is live so callers can immediately read/steer it.
   // If it never boots, tear the workspace down rather than leak it.
   try {
-    waitForTerminal(ws.workspaceId);
+    waitForTerminal({ workspace: ws.workspaceId, surface: ws.surfaceId });
   } catch (err) {
     try {
       closeWorkspace(ws.workspaceId);
@@ -94,6 +120,11 @@ export function spawn(opts: SpawnOptions): Agent {
     }
     remove(agentId);
     throw err;
+  }
+
+  // Clear the one-time bypass-permissions dialog so --yolo workers don't stall.
+  if (opts.launch && opts.mode === "yolo") {
+    acceptBypassDialog({ workspace: ws.workspaceId, surface: ws.surfaceId });
   }
 
   return agent;
