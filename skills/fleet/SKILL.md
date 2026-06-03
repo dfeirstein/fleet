@@ -30,7 +30,9 @@ fleet spawn <task...>   Launch a worker on a task (new cmux workspace)
     --no-autostart        Launch Claude but don't send the task prompt yet
 fleet read <agent> [--lines N] [--scrollback]   Capture a worker's screen
 fleet send <agent> <text...>                    Steer a worker (types text + Enter)
-fleet status                                    Live fleet dashboard
+fleet status                                    Snapshot fleet table
+fleet watch [--interval N] [--timeout N]        Block until the fleet is idle;
+                                                prints transitions + sidebar dash
 fleet kill <agent | --all>                      Stop a worker + clean up
 ```
 
@@ -48,8 +50,12 @@ Agents are matched by id, id-prefix, or label.
 5. **Collect** results when workers go idle, summarize for the user, then
    `fleet kill` the finished workers (or `fleet kill --all` at the end).
 
-Between waves, poll `fleet status` rather than blocking. A worker is done when
-its status reads `idle` and `fleet read` shows the final answer at the prompt.
+To wait for a wave, run `fleet watch` in the background (run_in_background): it
+prints status transitions, mirrors state to the cmux sidebar, and exits the
+moment no worker is still running — so you are notified when the wave is done
+instead of polling. Use `fleet status` for a one-off snapshot. A worker is done
+when its status reads `idle`; `awaiting-input` means it is blocked and needs you
+to `fleet send` an answer or approve in its pane.
 
 ## Permissions: auto (default) vs --gated vs --yolo
 
