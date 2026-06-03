@@ -40,7 +40,7 @@ doing what.
 ## Install
 
 ```bash
-git clone <repo-url> cmux-orchestrator
+git clone https://github.com/dfeirstein/cmux-orchestrator.git
 cd cmux-orchestrator
 ./install.sh        # checks prereqs, npm install, links `fleet` + the skill
 fleet doctor        # confirm everything's green
