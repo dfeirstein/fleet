@@ -255,6 +255,31 @@ export function submit(target: Target, text: string): void {
   sendKey(target, "Enter");
 }
 
+/**
+ * Submit a prompt into a Claude Code TUI reliably. cmux `send` arrives as a
+ * bracketed paste, so Claude collapses it ("paste again to expand") and the
+ * first Enter expands rather than submits — regardless of length. Send the
+ * text + Enter, then re-send Enter while the collapse indicator is still shown.
+ * (A length threshold misses short-but-collapsed prompts; detecting the
+ * indicator is what's reliable.)
+ */
+export function submitToClaude(target: Target, text: string): void {
+  sendText(target, text);
+  sendKey(target, "Enter");
+  const collapsed = /paste again to expand|\[pasted text/i;
+  for (let i = 0; i < 3; i++) {
+    let screen = "";
+    try {
+      screen = readScreen(target, 12);
+    } catch {
+      return;
+    }
+    if (!collapsed.test(screen)) return; // submitted
+    sendKey(target, "Enter");
+    sleepMs(300);
+  }
+}
+
 /** Close a workspace by handle. */
 export function closeWorkspace(workspace: string): void {
   cmux(["close-workspace", "--workspace", workspace]);

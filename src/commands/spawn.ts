@@ -9,7 +9,7 @@ import {
   closeWorkspace,
   readScreen,
   submit,
-  sendKey,
+  submitToClaude,
   type Target,
 } from "../cmux.js";
 import { upsert, remove, type Agent } from "../registry.js";
@@ -161,10 +161,7 @@ export function spawn(opts: SpawnOptions): Agent {
   // Dispatch the task once the TUI is ready (guarded against paste-collapse).
   // Skipped for --no-autostart and the raw --command override.
   if (opts.launch && opts.autostart && opts.task && !opts.command) {
-    if (waitForClaudeReady(t)) {
-      submit(t, opts.task);
-      if (opts.task.length > 200) sendKey(t, "Enter");
-    }
+    if (waitForClaudeReady(t)) submitToClaude(t, opts.task);
   }
 
   return agent;
