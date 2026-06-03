@@ -27,6 +27,9 @@ export interface Agent {
   ownsWorkspace: boolean;
   status: AgentStatus;
   spawnedAt: string; // ISO timestamp
+  /** When the worker was last given work (spawn or send) — used to tell whether
+   *  a "Completed" notification belongs to the current turn. */
+  lastDispatchAt: string;
   lastSeen?: string;
 }
 

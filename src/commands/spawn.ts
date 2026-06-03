@@ -105,6 +105,7 @@ export function spawn(opts: SpawnOptions): Agent {
     ownsWorkspace: true,
     status: "running",
     spawnedAt: new Date().toISOString(),
+    lastDispatchAt: new Date().toISOString(),
   };
   upsert(agent);
 

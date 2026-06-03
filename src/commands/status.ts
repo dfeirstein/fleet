@@ -3,6 +3,7 @@
 import { listAgents, patch, handle, target } from "../registry.js";
 import { workspaceExists } from "../cmux.js";
 import { probeStatus } from "../status.js";
+import { listNotifications, latestByWorkspace, turnEnded } from "../notifications.js";
 
 const ICON: Record<string, string> = {
   running: "●",
@@ -24,15 +25,24 @@ export interface FleetRow {
   task: string;
 }
 
-/** Reconcile + classify every agent. Updates the registry as a side effect. */
+/** Reconcile + classify every agent. Updates the registry as a side effect.
+ *  Completion is taken from cmux's notification feed when available (a
+ *  deterministic "turn finished" signal), falling back to the screen heuristic. */
 export function snapshot(): FleetRow[] {
   const rows: FleetRow[] = [];
+  const notifs = latestByWorkspace(listNotifications());
   for (const a of listAgents()) {
     let status: string = a.status;
     if (!workspaceExists(handle(a))) {
       status = "dead";
     } else {
-      status = probeStatus(target(a)).status;
+      // Screen heuristic is the baseline. A fresh cmux turn-end notification
+      // deterministically forces "idle" — UNLESS the screen shows a state that
+      // needs attention (a blocking dialog, rate limit, or error), which wins.
+      const probe = probeStatus(target(a)).status;
+      const wsId = a.workspaceId ?? a.workspace;
+      const attention = probe === "awaiting-input" || probe === "rate-limited" || probe === "error";
+      status = !attention && turnEnded(notifs.get(wsId), a.lastDispatchAt) ? "idle" : probe;
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });
     rows.push({
