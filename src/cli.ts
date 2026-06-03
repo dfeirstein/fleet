@@ -10,6 +10,8 @@ import { kill, killAll, reviewBranches } from "./commands/kill.js";
 import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
 import { resume } from "./commands/resume.js";
 import { orchestrate } from "./commands/orchestrate.js";
+import { setup } from "./commands/setup.js";
+import { doctor } from "./commands/doctor.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
 import { notifyOrchestrator } from "./commands/notify.js";
 import { clearDashboard } from "./dashboard.js";
@@ -78,6 +80,8 @@ Commands:
                                              prints transitions + sidebar dash
         [--no-until-idle]                    Keep watching (don't exit on idle)
   kill <agent | --all>                       Stop a worker and clean up
+  setup                                      Link fleet onto PATH + install skill
+  doctor                                     Diagnose the install (cmux/PATH/…)
   orchestrate [name]                         Declare a new orchestrator workspace
                                              (a badged control plane you talk to)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
@@ -153,6 +157,14 @@ function main(): void {
     case "status":
     case "ls": {
       console.log(renderTable(snapshot()));
+      break;
+    }
+    case "setup": {
+      setup();
+      break;
+    }
+    case "doctor": {
+      doctor();
       break;
     }
     case "orchestrate": {

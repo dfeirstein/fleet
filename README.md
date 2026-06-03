@@ -40,13 +40,28 @@ doing what.
 ## Install
 
 ```bash
-npm install
-ln -s "$PWD/bin/fleet" ~/.local/bin/fleet      # put `fleet` on PATH
-ln -sfn "$PWD/skills/fleet" ~/.claude/skills/fleet   # let any Claude session discover it
+git clone <repo-url> cmux-orchestrator
+cd cmux-orchestrator
+./install.sh        # checks prereqs, npm install, links `fleet` + the skill
+fleet doctor        # confirm everything's green
 ```
 
-`fleet` runs from any directory; each project gets its own isolated fleet
-(keyed off the git root / cwd, override with `FLEET_SESSION`).
+`install.sh` checks for cmux/Node/git, installs deps (no build step — TS runs via
+`tsx`), symlinks `fleet` into `~/.local/bin`, and installs the orchestrator skill
+into `~/.claude/skills`. If `~/.local/bin` isn't on your PATH, add it
+(`export PATH="$HOME/.local/bin:$PATH"`) and reopen your shell.
+
+- **`fleet setup`** — re-link after a `git pull` (idempotent).
+- **`fleet doctor`** — diagnose an install (cmux reachable? PATH? skill? daemon?).
+
+Then spin up your control plane:
+
+```bash
+fleet orchestrate Mario     # a badged "🎛 Mario" workspace you talk to
+```
+
+`fleet` runs from any directory; each orchestrator gets its own isolated fleet
+session, and workers can be dispatched into any project.
 
 ## Quickstart
 
