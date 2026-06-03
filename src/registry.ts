@@ -21,6 +21,7 @@ export interface Agent {
   surfaceId?: string;
   cwd: string;
   model: string;
+  mode: "auto" | "gated" | "yolo";
   task: string;
   /** Whether spawn created its own workspace (closeable) or split an existing one. */
   ownsWorkspace: boolean;

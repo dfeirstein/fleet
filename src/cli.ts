@@ -48,10 +48,14 @@ Commands:
     --cwd <path>           Working directory (default: cwd)
     --label <name>         Workspace/agent label
     --model <model>        Model for the worker (default: ${SPAWN_DEFAULTS.model})
+    --gated                Prompt on every risky action (forces default mode)
+    --yolo                 No safety checks (--dangerously-skip-permissions)
     --command <cmd>        Override launched program (testing / non-claude)
-    --yolo                 Ungated worker (--dangerously-skip-permissions)
     --no-launch            Open a bare shell; don't launch anything
     --no-autostart         Launch Claude but don't auto-send the task prompt
+
+  Default permission mode is 'auto': autonomous, but a classifier blocks
+  dangerous actions (deploys, curl|bash, force-push, mass deletes, etc.).
 
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
@@ -75,12 +79,12 @@ function main(): void {
         command: str(flags.command),
         launch: flags["no-launch"] !== true,
         autostart: flags["no-autostart"] !== true,
-        yolo: flags.yolo === true,
+        mode: flags.yolo === true ? "yolo" : flags.gated === true ? "gated" : SPAWN_DEFAULTS.mode,
       };
       const agent = spawn(opts);
       console.log(`spawned ${agent.agentId} (${agent.label})`);
       console.log(`  workspace: ${agent.workspace}  surface: ${agent.surface}`);
-      console.log(`  cwd: ${agent.cwd}  model: ${agent.model}`);
+      console.log(`  cwd: ${agent.cwd}  model: ${agent.model}  mode: ${agent.mode}`);
       break;
     }
     case "read": {

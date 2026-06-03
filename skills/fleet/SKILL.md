@@ -25,7 +25,8 @@ fleet spawn <task...>   Launch a worker on a task (new cmux workspace)
     --cwd <path>          Working dir (default: your cwd)
     --label <name>        Human label for the worker/workspace
     --model <model>       Worker model (default: opus)
-    --yolo                Ungated worker (--dangerously-skip-permissions)
+    --gated               Prompt on every risky action (forces default mode)
+    --yolo                No safety checks (--dangerously-skip-permissions)
     --no-autostart        Launch Claude but don't send the task prompt yet
 fleet read <agent> [--lines N] [--scrollback]   Capture a worker's screen
 fleet send <agent> <text...>                    Steer a worker (types text + Enter)
@@ -50,14 +51,24 @@ Agents are matched by id, id-prefix, or label.
 Between waves, poll `fleet status` rather than blocking. A worker is done when
 its status reads `idle` and `fleet read` shows the final answer at the prompt.
 
-## Permissions: gated vs --yolo
+## Permissions: auto (default) vs --gated vs --yolo
 
-- **Default (gated):** workers prompt for approval on writes/bash. Safe, but
-  each worker pauses until approved — you or the user must `fleet send` "yes" or
-  approve in the pane. Good while building trust.
-- **`--yolo`:** adds `--dangerously-skip-permissions` — the worker acts
-  autonomously with no approval gate. **Only spawn `--yolo` when the user has
-  clearly asked for autonomous/unattended workers.** State that you're doing it.
+- **Default — auto mode** (`--permission-mode auto`): the worker runs
+  autonomously, but a classifier vetoes dangerous actions (production deploys,
+  `curl | bash`, force-push / pushing to main, mass deletes, sending secrets
+  out, granting IAM, destroying pre-existing files). Safe local edits, dep
+  installs, and read-only HTTP run without prompting. This is the right default
+  for almost all work. Needs Opus 4.6+/Sonnet 4.6 (workers default to opus, so
+  fine). If a worker hits a hard block it pauses → shows as `awaiting-input`;
+  read it, then `fleet send` guidance or a boundary, or approve in the pane.
+- **`--gated`:** prompts on every risky action. Use when the user wants to
+  review each step, or for especially sensitive work.
+- **`--yolo`:** `--dangerously-skip-permissions` — NO safety checks at all and
+  no prompt-injection protection. Only for throwaway sandboxes. **Only spawn
+  `--yolo` when the user has explicitly asked for it**, and say you're doing it.
+
+You can also state boundaries in the worker's prompt ("do not deploy", "don't
+push") — auto mode's classifier enforces them.
 
 ## Cost & quota
 
