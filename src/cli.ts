@@ -8,6 +8,9 @@ import { send } from "./commands/send.js";
 import { snapshot, renderTable } from "./commands/status.js";
 import { kill, killAll } from "./commands/kill.js";
 import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
+import { resume } from "./commands/resume.js";
+import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
+import { notifyOrchestrator } from "./commands/notify.js";
 import { clearDashboard } from "./dashboard.js";
 import { CmuxError } from "./cmux.js";
 
@@ -67,10 +70,16 @@ Commands:
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
+  resume                                      Reconcile registry vs live cmux
+                                             (prune dead, refresh refs)
   watch [--interval N] [--timeout N]         Poll until the fleet is idle;
                                              prints transitions + sidebar dash
         [--no-until-idle]                    Keep watching (don't exit on idle)
   kill <agent | --all>                       Stop a worker and clean up
+  daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
+                                             stuck/zombie detection, escalations
+  notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
+                                             (bridge for /schedule routines)
 
 Agents are matched by id, id-prefix, or label.`;
 
@@ -138,6 +147,12 @@ function main(): void {
       console.log(renderTable(snapshot()));
       break;
     }
+    case "resume": {
+      const { rows, pruned } = resume();
+      if (pruned.length) console.log(`pruned ${pruned.length} dead: ${pruned.join(", ")}`);
+      console.log(renderTable(rows));
+      break;
+    }
     case "watch": {
       watch({
         untilIdle: flags["no-until-idle"] !== true,
@@ -145,6 +160,22 @@ function main(): void {
         intervalIdle: str(flags.interval) ? Number(str(flags.interval)) : WATCH_DEFAULTS.intervalIdle,
         timeoutSec: str(flags.timeout) ? Number(str(flags.timeout)) : WATCH_DEFAULTS.timeoutSec,
       });
+      break;
+    }
+    case "daemon": {
+      const sub = positionals[0];
+      if (sub === "start") daemonStart();
+      else if (sub === "stop") daemonStop();
+      else if (sub === "status") daemonStatus();
+      else if (sub === "run") daemonRun();
+      else return fail("daemon <start|stop|status|run>");
+      break;
+    }
+    case "notify-orchestrator": {
+      const msg = positionals.join(" ").trim();
+      if (!msg) return fail("notify-orchestrator requires a message");
+      const delivery = notifyOrchestrator(msg, flags.urgent === true);
+      console.log(`${delivery}: ${msg}`);
       break;
     }
     case "kill": {

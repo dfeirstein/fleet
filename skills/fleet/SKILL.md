@@ -38,6 +38,9 @@ fleet status                                    Snapshot fleet table
 fleet watch [--interval N] [--timeout N]        Block until the fleet is idle;
                                                 prints transitions + sidebar dash
 fleet kill <agent | --all>                      Stop a worker + clean up
+fleet resume                                    Reconcile registry vs live cmux
+fleet daemon <start|stop|status>                Always-on supervisor (heartbeat)
+fleet notify-orchestrator <msg> [--urgent]      Push a message to this orchestrator
 ```
 
 Agents are matched by id, id-prefix, or label.
@@ -91,6 +94,24 @@ push") — auto mode's classifier enforces them.
   grid when the panes do independent work (different files/areas), or have one
   pane drive while others assist. For parallel writers on the same code, prefer
   `fleet spawn` with a git branch/worktree per worker.
+
+## The daemon (always-on supervisor)
+
+For long or unattended sessions, start `fleet daemon start` once. It runs a
+token-free heartbeat in its own cmux pane that: reconciles the fleet on boot,
+watches every worker, auto-clears stuck `--yolo` bypass dialogs, and **surfaces
+anything that needs you** — a worker `awaiting-input`, looking stuck, errored, or
+rate-limited. Urgent items are injected into your pane (a new turn) when you're
+idle; routine items go to `~/.fleet/daemon/inbox.md`.
+
+**When a daemon is running, check `~/.fleet/daemon/inbox.md` at the start of a
+turn** for anything it queued while you were busy. `fleet daemon status` shows
+liveness; `fleet daemon stop` tears it down.
+
+**Scheduling:** the daemon has no cron — use Claude Code's `/schedule` for timed
+work. A scheduled routine does its job with `fleet …` and calls
+`fleet notify-orchestrator "<result>" [--urgent]` to report back through the same
+channel the daemon uses.
 
 ## Cost & quota
 
