@@ -3,7 +3,15 @@
 // register it in the fleet.
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { newWorkspace, waitForTerminal, closeWorkspace, readScreen, submit, type Target } from "../cmux.js";
+import {
+  newWorkspace,
+  waitForTerminal,
+  closeWorkspace,
+  readScreen,
+  submit,
+  sendKey,
+  type Target,
+} from "../cmux.js";
 import { upsert, remove, type Agent } from "../registry.js";
 
 // Worker permission posture:
@@ -45,6 +53,23 @@ function newAgentId(): string {
  * Without this, a --yolo worker stalls instead of starting. Poll briefly and
  * select "Yes, I accept" (option 2) if the dialog appears.
  */
+/** Wait until the Claude Code TUI is up and idle at its prompt. */
+export function waitForClaudeReady(target: Target, timeoutMs = 30000): boolean {
+  const ready = /auto mode on|bypass permissions on|accept edits on|\? for shortcuts|esc to interrupt/i;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let screen = "";
+    try {
+      screen = readScreen(target, 30);
+    } catch {
+      /* not ready */
+    }
+    if (ready.test(screen)) return true;
+    execFileSync("sleep", ["0.4"]);
+  }
+  return false;
+}
+
 export function acceptBypassDialog(target: Target): boolean {
   for (let i = 0; i < 15; i++) {
     let screen = "";
@@ -82,8 +107,11 @@ export function spawn(opts: SpawnOptions): Agent {
   const agentId = newAgentId();
   const label = opts.label || `agent-${agentId}`;
 
+  // Launch a SHORT claude command (no task) so it reliably runs via cmux
+  // --command. A long task baked into the launch line gets mangled by the
+  // shell's bracketed-paste on boot; we send the task after the TUI is ready.
   const command = opts.launch
-    ? (opts.command ?? buildClaudeCommand(opts.model, opts.task, opts.autostart, opts.mode))
+    ? (opts.command ?? buildClaudeCommand(opts.model, "", false, opts.mode))
     : undefined;
 
   // Create the workspace and let cmux launch the program in its terminal.
@@ -123,9 +151,20 @@ export function spawn(opts: SpawnOptions): Agent {
     throw err;
   }
 
+  const t: Target = { workspace: ws.workspaceId, surface: ws.surfaceId };
+
   // Clear the one-time bypass-permissions dialog so --yolo workers don't stall.
   if (opts.launch && opts.mode === "yolo") {
-    acceptBypassDialog({ workspace: ws.workspaceId, surface: ws.surfaceId });
+    acceptBypassDialog(t);
+  }
+
+  // Dispatch the task once the TUI is ready (guarded against paste-collapse).
+  // Skipped for --no-autostart and the raw --command override.
+  if (opts.launch && opts.autostart && opts.task && !opts.command) {
+    if (waitForClaudeReady(t)) {
+      submit(t, opts.task);
+      if (opts.task.length > 200) sendKey(t, "Enter");
+    }
   }
 
   return agent;

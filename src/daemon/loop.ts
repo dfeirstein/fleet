@@ -88,7 +88,9 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   // idle", fire ONE proactive wake-prompt offering the next step. Re-arms when a
   // new worker starts running (so each wave gets one nudge, not a stream).
   const live = agents.filter((a) => a.status !== "dead");
-  const anyRunning = live.some((a) => a.status === "running");
+  // "active" includes "unknown" (booting/indeterminate) so a wave isn't declared
+  // complete while a worker is still starting up.
+  const anyRunning = live.some((a) => a.status === "running" || a.status === "unknown");
   if (anyRunning) mem.waveAnnounced = false;
   if (cfg.proactive && !anyRunning && mem.prevAnyRunning && live.length > 0 && !mem.waveAnnounced) {
     const text = waveCompleteMessage(live);

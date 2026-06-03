@@ -73,11 +73,14 @@ export function watch(opts: WatchOptions): void {
       if (!rows.find((r) => r.agentId === id)) prev.delete(id);
     }
 
-    const running = rows.filter((r) => r.status === "running").length;
+    // "active" includes "unknown": a worker that is booting or whose screen is
+    // momentarily indeterminate is NOT done — treating unknown as quiescent
+    // makes watch exit during a worker's startup.
+    const active = rows.filter((r) => r.status === "running" || r.status === "unknown").length;
 
     if (opts.untilIdle) {
-      // Debounce transient blank/unknown reads: require two consecutive quiet polls.
-      if (running === 0) {
+      // Debounce transient reads: require two consecutive quiet polls.
+      if (active === 0) {
         quietStreak++;
         if (quietStreak >= 2) {
           console.log(`${ts()}  fleet quiescent (${rows.length} agents).`);
@@ -95,6 +98,6 @@ export function watch(opts: WatchOptions): void {
       return;
     }
 
-    sleepSeconds(running > 0 ? opts.intervalActive : opts.intervalIdle);
+    sleepSeconds(active > 0 ? opts.intervalActive : opts.intervalIdle);
   }
 }
