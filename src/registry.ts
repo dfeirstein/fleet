@@ -41,17 +41,37 @@ interface RegistryFile {
 }
 
 /**
- * The fleet session — one registry per project so orchestrators in different
- * repos don't see each other's workers. Explicit FLEET_SESSION wins; otherwise
- * derive a stable id from the project root (git toplevel, else cwd): a readable
- * basename plus a short path hash to avoid collisions between same-named dirs.
+ * The fleet session — which registry this process reads/writes.
+ *   1. explicit FLEET_SESSION wins;
+ *   2. if this process IS the declared orchestrator (its cmux workspace matches
+ *      the registered orchestrator), use that orchestrator's session — so the
+ *      orchestrator's workers always land in its own named registry WITHOUT
+ *      relying on env-var propagation through the launch;
+ *   3. otherwise derive a stable id from the project root (git toplevel / cwd).
  */
 function sessionId(): string {
   if (process.env.FLEET_SESSION) return process.env.FLEET_SESSION;
+
+  const orch = readOrchestratorRecord();
+  if (orch && process.env.CMUX_WORKSPACE_ID && orch.workspaceId === process.env.CMUX_WORKSPACE_ID) {
+    return orch.session;
+  }
+
   const root = projectRoot();
   const slug = basename(root).replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "root";
   const hash = createHash("sha1").update(root).digest("hex").slice(0, 8);
   return `${slug}-${hash}`;
+}
+
+/** Read the declared orchestrator record (inline, to avoid a module cycle). */
+function readOrchestratorRecord(): { workspaceId: string; session: string } | undefined {
+  try {
+    const p = join(homedir(), ".fleet", "orchestrator.json");
+    if (!existsSync(p)) return undefined;
+    return JSON.parse(readFileSync(p, "utf8")) as { workspaceId: string; session: string };
+  } catch {
+    return undefined;
+  }
 }
 
 function projectRoot(): string {

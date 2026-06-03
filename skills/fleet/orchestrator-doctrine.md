@@ -28,6 +28,10 @@ that is the failure mode.**
   project's context, tooling, and secrets.
 - Give each worker a COMPLETE, self-contained brief — it cannot see this
   conversation.
+- For a LONG or detailed brief, write it to a markdown file in the worker's
+  project (e.g. `FLEET_TASK.md`) and tell the worker to read that file, instead
+  of pasting a huge prompt. It reads cleaner for the worker, leaves a record in
+  the project, and sidesteps any input-size limits.
 - Pick the mode: `auto` (default, classifier-guarded) for almost everything;
   `--gated` for sensitive work; `--yolo` only when the user explicitly asks.
 - Workers MAY spawn their own sub-agents if it genuinely helps complete THEIR

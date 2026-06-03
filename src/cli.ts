@@ -157,7 +157,7 @@ function main(): void {
     }
     case "orchestrate": {
       const name = positionals.join(" ").trim() || "Orchestrator";
-      const rec = orchestrate(name);
+      const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true });
       console.log(`🎛 Orchestrator "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
       console.log(`Switch to the "🎛 ${rec.name}" workspace in cmux and talk to it to orchestrate.`);
       console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);

@@ -6,6 +6,8 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 export interface DaemonConfig {
   /** The orchestrator session the daemon reports to. */
   orchestrator: { workspace: string; surface?: string };
+  /** The fleet session (registry) the daemon watches — bound to the orchestrator. */
+  session?: string;
   heartbeatSec: number;
   /** A "running" worker whose screen hasn't changed for this long is "stuck". */
   stuckMinutes: number;

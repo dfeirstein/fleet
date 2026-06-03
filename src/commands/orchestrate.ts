@@ -2,19 +2,12 @@
 // (the control plane). The orchestrator is a ROLE pinned to a workspace, not a
 // directory: it can sit in its own workspace and delegate into any project.
 import { fileURLToPath } from "node:url";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { newWorkspace, cmux } from "../cmux.js";
-
-export interface OrchestratorRecord {
-  name: string;
-  session: string;
-  workspaceId: string;
-  surfaceId: string;
-  workspaceRef: string;
-  declaredAt: string;
-}
+import { loadOrchestrator, orchestratorPath, type OrchestratorRecord } from "../orchestrator-record.js";
+import { daemonStart, daemonStop } from "./daemon.js";
 
 function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "orchestrator";
@@ -24,20 +17,7 @@ function fleetDir(): string {
   return join(homedir(), ".fleet");
 }
 
-export function orchestratorPath(): string {
-  return join(fleetDir(), "orchestrator.json");
-}
-
-export function loadOrchestrator(): OrchestratorRecord | undefined {
-  if (!existsSync(orchestratorPath())) return undefined;
-  try {
-    return JSON.parse(readFileSync(orchestratorPath(), "utf8")) as OrchestratorRecord;
-  } catch {
-    return undefined;
-  }
-}
-
-export function orchestrate(name: string): OrchestratorRecord {
+export function orchestrate(name: string, opts: { daemon?: boolean } = {}): OrchestratorRecord {
   mkdirSync(fleetDir(), { recursive: true });
   const session = slug(name);
 
@@ -90,6 +70,18 @@ export function orchestrate(name: string): OrchestratorRecord {
     ]);
   } catch {
     // badge is decorative
+  }
+
+  // Auto-start the supervisor, bound to THIS orchestrator (its session + target),
+  // so completion feedback flows back without a separate step. This is what was
+  // missing: a daemon not bound to the orchestrator's session sees 0 agents.
+  if (opts.daemon !== false) {
+    try {
+      daemonStop(); // clear any stale/other-session daemon first
+      daemonStart();
+    } catch (e) {
+      console.error(`note: could not auto-start daemon: ${(e as Error).message}`);
+    }
   }
 
   return record;
