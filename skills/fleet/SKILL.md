@@ -28,6 +28,10 @@ fleet spawn <task...>   Launch a worker on a task (new cmux workspace)
     --gated               Prompt on every risky action (forces default mode)
     --yolo                No safety checks (--dangerously-skip-permissions)
     --no-autostart        Launch Claude but don't send the task prompt yet
+fleet grid <cols>x<rows> [task...]              Tile ONE workspace into a grid of
+    --cwd <path> --label <prefix> [--gated|--yolo]  worker panes (shared FS).
+                                                 With a task all panes run it;
+                                                 else they idle for `fleet send`.
 fleet read <agent> [--lines N] [--scrollback]   Capture a worker's screen
 fleet send <agent> <text...>                    Steer a worker (types text + Enter)
 fleet status                                    Snapshot fleet table
@@ -75,6 +79,18 @@ to `fleet send` an answer or approve in its pane.
 
 You can also state boundaries in the worker's prompt ("do not deploy", "don't
 push") — auto mode's classifier enforces them.
+
+## Two layouts: separate workspaces vs a grid
+
+- **`fleet spawn`** puts each worker in its OWN workspace (its own sidebar entry,
+  its own cwd). Best default — workers are isolated and you give each a separate
+  area to avoid file conflicts.
+- **`fleet grid 2x2`** tiles ONE workspace into a grid of panes (the demo-video
+  layout) — visually compact and they share one filesystem. ⚠️ Because grid
+  panes share a cwd, multiple workers editing the SAME files will conflict. Use a
+  grid when the panes do independent work (different files/areas), or have one
+  pane drive while others assist. For parallel writers on the same code, prefer
+  `fleet spawn` with a git branch/worktree per worker.
 
 ## Cost & quota
 

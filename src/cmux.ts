@@ -86,7 +86,7 @@ interface PaneSurfacesResponse {
   surfaces: SurfaceInfo[];
 }
 
-/** List the surfaces in a workspace (with both refs and UUIDs). */
+/** List the surfaces in a workspace's focused pane (with both refs and UUIDs). */
 export function listSurfaces(workspaceRef: string): PaneSurfacesResponse {
   return cmuxJson<PaneSurfacesResponse>([
     "list-pane-surfaces",
@@ -96,6 +96,52 @@ export function listSurfaces(workspaceRef: string): PaneSurfacesResponse {
     "both",
     "--json",
   ]);
+}
+
+interface PanesResponse {
+  panes: { ref: string; selected_surface_ref: string }[];
+}
+
+export interface GridCell {
+  paneRef: string;
+  surfaceRef: string;
+  surfaceId: string;
+  workspaceId: string;
+}
+
+/** Split a pane/surface and return the NEW surface's ref. */
+export function newSplit(direction: "left" | "right" | "up" | "down", target: Target): string {
+  const args = ["new-split", direction, "--workspace", target.workspace, "--focus", "false"];
+  if (target.surface) args.push("--surface", target.surface);
+  return parseRef(cmux(args), "surface");
+}
+
+/** Enumerate every pane's terminal surface in a workspace, with stable UUIDs. */
+export function listGridCells(workspaceRef: string): GridCell[] {
+  const { panes } = cmuxJson<PanesResponse>(["list-panes", "--workspace", workspaceRef, "--json"]);
+  const cells: GridCell[] = [];
+  for (const p of panes) {
+    const info = cmuxJson<PaneSurfacesResponse>([
+      "list-pane-surfaces",
+      "--workspace",
+      workspaceRef,
+      "--pane",
+      p.ref,
+      "--id-format",
+      "both",
+      "--json",
+    ]);
+    const s = info.surfaces.find((x) => x.selected) ?? info.surfaces[0];
+    if (s) cells.push({ paneRef: p.ref, surfaceRef: s.ref, surfaceId: s.id, workspaceId: info.workspace_id });
+  }
+  return cells;
+}
+
+/** Close a single surface (pane) by workspace+surface. */
+export function closeSurface(target: Target): void {
+  const args = ["close-surface", "--workspace", target.workspace];
+  if (target.surface) args.push("--surface", target.surface);
+  cmux(args);
 }
 
 /** True if a workspace still exists (used to reconcile a stale registry). */

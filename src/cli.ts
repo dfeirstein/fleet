@@ -2,6 +2,7 @@
 // fleet — Claude-Code-driven multi-agent orchestrator on cmux.
 // Phase 0–1 surface: spawn, read, send, status, kill.
 import { spawn, SPAWN_DEFAULTS, type SpawnOptions } from "./commands/spawn.js";
+import { grid, parseGrid, type GridOptions } from "./commands/grid.js";
 import { read } from "./commands/read.js";
 import { send } from "./commands/send.js";
 import { snapshot, renderTable } from "./commands/status.js";
@@ -59,6 +60,10 @@ Commands:
   Default permission mode is 'auto': autonomous, but a classifier blocks
   dangerous actions (deploys, curl|bash, force-push, mass deletes, etc.).
 
+  grid <cols>x<rows> [task...]               Tile one workspace into a grid of
+        [--cwd P] [--label N] [--gated|--yolo] worker panes (shared filesystem).
+                                             With a task, all panes run it; else
+                                             they idle for per-pane 'fleet send'.
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
@@ -90,6 +95,26 @@ function main(): void {
       console.log(`spawned ${agent.agentId} (${agent.label})`);
       console.log(`  workspace: ${agent.workspace}  surface: ${agent.surface}`);
       console.log(`  cwd: ${agent.cwd}  model: ${agent.model}  mode: ${agent.mode}`);
+      break;
+    }
+    case "grid": {
+      const spec = positionals[0];
+      if (!spec) return fail("grid requires a <cols>x<rows> spec, e.g. `fleet grid 2x2`");
+      const { cols, rows } = parseGrid(spec);
+      const task = positionals.slice(1).join(" ").trim();
+      const opts: GridOptions = {
+        cols,
+        rows,
+        cwd: str(flags.cwd) ?? process.cwd(),
+        labelPrefix: str(flags.label) ?? "grid",
+        model: str(flags.model) ?? SPAWN_DEFAULTS.model,
+        mode: flags.yolo === true ? "yolo" : flags.gated === true ? "gated" : SPAWN_DEFAULTS.mode,
+        task,
+      };
+      const agents = grid(opts);
+      console.log(`grid ${cols}x${rows} — ${agents.length} workers in ${agents[0]?.workspace} (mode: ${opts.mode}):`);
+      for (const a of agents) console.log(`  ${a.agentId}  ${a.label}  ${a.surface}`);
+      if (!task) console.log(`dispatch work with: fleet send <agent> "<task>"`);
       break;
     }
     case "read": {

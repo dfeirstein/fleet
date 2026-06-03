@@ -45,7 +45,7 @@ function newAgentId(): string {
  * Without this, a --yolo worker stalls instead of starting. Poll briefly and
  * select "Yes, I accept" (option 2) if the dialog appears.
  */
-function acceptBypassDialog(target: Target): boolean {
+export function acceptBypassDialog(target: Target): boolean {
   for (let i = 0; i < 15; i++) {
     let screen = "";
     try {

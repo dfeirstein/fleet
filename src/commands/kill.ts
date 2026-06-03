@@ -1,17 +1,41 @@
-// `fleet kill <agent|--all>` — stop a worker and clean up its cmux workspace.
-import { sendKey, closeWorkspace, workspaceExists } from "../cmux.js";
+// `fleet kill <agent|--all>` — stop a worker and clean up its cmux surface.
+import { sendKey, closeWorkspace, closeSurface, workspaceExists } from "../cmux.js";
 import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
+
+function sharesWorkspace(a: Agent, b: Agent): boolean {
+  return (a.workspaceId ?? a.workspace) === (b.workspaceId ?? b.workspace);
+}
 
 function killOne(agent: Agent): void {
   const h = handle(agent);
   if (workspaceExists(h)) {
-    // Interrupt whatever the worker is doing first, then close its workspace.
+    // Interrupt whatever the worker is doing first.
     try {
       sendKey(target(agent), "ctrl+c");
     } catch {
-      // terminal may already be gone; fall through to close
+      // terminal may already be gone
     }
-    if (agent.ownsWorkspace) closeWorkspace(h);
+    if (agent.ownsWorkspace) {
+      closeWorkspace(h);
+    } else {
+      // Shared (grid) member. If others remain, close just this pane; if this is
+      // the last member, close the whole workspace (cmux refuses to close the
+      // last surface, so don't try).
+      const others = listAgents().filter((a) => a.agentId !== agent.agentId && sharesWorkspace(a, agent));
+      if (others.length === 0) {
+        try {
+          closeWorkspace(h);
+        } catch {
+          // best-effort
+        }
+      } else {
+        try {
+          closeSurface(target(agent));
+        } catch {
+          // surface may already be gone
+        }
+      }
+    }
   }
   remove(agent.agentId);
 }
