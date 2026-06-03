@@ -25,9 +25,14 @@ const ICON: Record<string, string> = {
   unknown: "◌",
 };
 
-/** The orchestrator's own workspace (set in every cmux terminal). */
-function orchWorkspace(): string | undefined {
-  return process.env.CMUX_WORKSPACE_ID;
+/**
+ * The workspace to draw the dashboard on. Defaults to the caller's own cmux
+ * workspace (correct for `fleet status`/`watch` run from the orchestrator), but
+ * the daemon passes the orchestrator's workspace explicitly — its own
+ * CMUX_WORKSPACE_ID is the daemon pane, not where the user is watching.
+ */
+function dashWorkspace(override?: string): string | undefined {
+  return override ?? process.env.CMUX_WORKSPACE_ID;
 }
 
 function safe(args: string[]): void {
@@ -39,8 +44,8 @@ function safe(args: string[]): void {
 }
 
 /** Reconcile the sidebar to exactly the current fleet rows. */
-export function updateSidebar(rows: FleetRow[]): void {
-  const ws = orchWorkspace();
+export function updateSidebar(rows: FleetRow[], workspace?: string): void {
+  const ws = dashWorkspace(workspace);
   if (!ws) return;
 
   // Clear any stale fleet:* statuses for agents that no longer exist.
@@ -88,9 +93,32 @@ export function updateSidebar(rows: FleetRow[]): void {
   }
 }
 
+/**
+ * A live heartbeat line on the dashboard — visible "the daemon is watching"
+ * without ever injecting a turn. Updated every beat by the daemon.
+ */
+export function setHeartbeat(rows: FleetRow[], workspace?: string): void {
+  const ws = dashWorkspace(workspace);
+  if (!ws) return;
+  const running = rows.filter((r) => r.status === "running").length;
+  const idle = rows.filter((r) => r.status === "idle").length;
+  const beat = new Date().toISOString().slice(11, 19);
+  safe([
+    "set-status",
+    "fleet:daemon",
+    `💓 fleet · ${running}r ${idle}i · beat ${beat}`,
+    "--workspace",
+    ws,
+    "--color",
+    "#a78bfa",
+    "--priority",
+    "100",
+  ]);
+}
+
 /** Remove all fleet sidebar entries (call when the fleet is torn down). */
-export function clearDashboard(): void {
-  const ws = orchWorkspace();
+export function clearDashboard(workspace?: string): void {
+  const ws = dashWorkspace(workspace);
   if (!ws) return;
   try {
     const listing = cmux(["list-status", "--workspace", ws]);

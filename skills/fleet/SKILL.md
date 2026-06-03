@@ -104,6 +104,12 @@ anything that needs you** — a worker `awaiting-input`, looking stuck, errored,
 rate-limited. Urgent items are injected into your pane (a new turn) when you're
 idle; routine items go to `~/.fleet/daemon/inbox.md`.
 
+It's also **proactive**: a live `💓 fleet` heartbeat line on your sidebar, and —
+when a wave of workers finishes — one wake-prompt offering the next step
+(verify / review / next wave). When you get a `[fleet-daemon]` message, treat it
+as a nudge: take the next useful action, or reply with a one-line ack if nothing
+is needed. Disable the wake-prompts with `fleet daemon start --no-proactive`.
+
 **When a daemon is running, check `~/.fleet/daemon/inbox.md` at the start of a
 turn** for anything it queued while you were busy. `fleet daemon status` shows
 liveness; `fleet daemon stop` tears it down.

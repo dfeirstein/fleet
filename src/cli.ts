@@ -164,7 +164,7 @@ function main(): void {
     }
     case "daemon": {
       const sub = positionals[0];
-      if (sub === "start") daemonStart();
+      if (sub === "start") daemonStart({ proactive: flags["no-proactive"] !== true });
       else if (sub === "stop") daemonStop();
       else if (sub === "status") daemonStatus();
       else if (sub === "run") daemonRun();

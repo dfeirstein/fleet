@@ -4,14 +4,16 @@ import { newWorkspace, closeWorkspace, workspaceExists } from "../cmux.js";
 import {
   DAEMON_DEFAULTS,
   saveConfig,
+  loadConfig,
   readState,
   statePath,
   pidAlive,
   type DaemonConfig,
 } from "../daemon/config.js";
+import { clearDashboard } from "../dashboard.js";
 import { runLoop } from "../daemon/loop.js";
 
-export function daemonStart(): void {
+export function daemonStart(opts: { proactive?: boolean } = {}): void {
   const orchWs = process.env.CMUX_WORKSPACE_ID;
   if (!orchWs) {
     throw new Error(
@@ -28,13 +30,16 @@ export function daemonStart(): void {
     heartbeatSec: DAEMON_DEFAULTS.heartbeatSec,
     stuckMinutes: DAEMON_DEFAULTS.stuckMinutes,
     alertCooldownSec: DAEMON_DEFAULTS.alertCooldownSec,
+    proactive: opts.proactive ?? DAEMON_DEFAULTS.proactive,
   };
   saveConfig(cfg);
 
   // Launch the loop in its own cmux workspace — visible and token-free.
   const ws = newWorkspace({ name: "fleet-daemon", cwd: process.cwd(), command: "fleet daemon run", focus: false });
   console.log(`fleet daemon started in ${ws.workspaceRef} · orchestrator=${orchWs}`);
-  console.log(`heartbeat ${cfg.heartbeatSec}s · stop with \`fleet daemon stop\``);
+  console.log(
+    `heartbeat ${cfg.heartbeatSec}s · proactive ${cfg.proactive ? "on" : "off"} · stop with \`fleet daemon stop\``,
+  );
 }
 
 export function daemonStop(): void {
@@ -50,6 +55,9 @@ export function daemonStop(): void {
       /* ignore */
     }
   }
+  // Clear the heartbeat/dashboard from the orchestrator's sidebar.
+  const cfg = loadConfig();
+  if (cfg) clearDashboard(cfg.orchestrator.workspace);
   if (pidAlive(st.pid)) {
     try {
       process.kill(st.pid, "SIGTERM");

@@ -11,6 +11,8 @@ export interface DaemonConfig {
   stuckMinutes: number;
   /** Min seconds between repeat alerts for the same agent+condition. */
   alertCooldownSec: number;
+  /** Proactive idle-initiative wake-prompts on wave completion. */
+  proactive: boolean;
 }
 
 export interface DaemonState {
@@ -33,6 +35,7 @@ export const DAEMON_DEFAULTS = {
   heartbeatSec: 12,
   stuckMinutes: 8,
   alertCooldownSec: 300,
+  proactive: true,
 };
 
 export function saveConfig(cfg: DaemonConfig): void {

@@ -9,10 +9,27 @@ export interface DaemonMemory {
   lastAlert: Record<string, Record<string, number>>;
   /** agentId -> { screen hash, epoch ms it last changed } (for stuck detection) */
   screenSince: Record<string, { hash: string; since: number }>;
+  /** idle-initiative edge tracking */
+  prevAnyRunning: boolean;
+  waveAnnounced: boolean;
 }
 
 export function newMemory(): DaemonMemory {
-  return { lastAlert: {}, screenSince: {} };
+  return { lastAlert: {}, screenSince: {}, prevAnyRunning: false, waveAnnounced: false };
+}
+
+/**
+ * Idle initiative: the proactive wake-prompt fired ONCE when the fleet goes
+ * from "something running" to "fully idle". It's a prompt to the orchestrator,
+ * so it both reports the result and invites the next move.
+ */
+export function waveCompleteMessage(live: { label: string; status: string }[]): string {
+  const summary = live.map((a) => `${a.label} ${a.status === "idle" ? "✓" : a.status}`).join(", ");
+  return (
+    `Wave complete — ${summary}. ` +
+    `If a next step is worth taking (verify the output, review the diff, start the next wave), ` +
+    `go ahead; otherwise a one-line ack is fine.`
+  );
 }
 
 export interface AgentSignal {

@@ -9,10 +9,10 @@ import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
 import { resume } from "../commands/resume.js";
 import { acceptBypassDialog } from "../commands/spawn.js";
-import { updateSidebar } from "../dashboard.js";
+import { updateSidebar, setHeartbeat } from "../dashboard.js";
 import { loadConfig, writeState, type DaemonConfig } from "./config.js";
 import { routeMessage } from "./channel.js";
-import { newMemory, evaluate, type DaemonMemory } from "./policy.js";
+import { newMemory, evaluate, waveCompleteMessage, type DaemonMemory } from "./policy.js";
 
 function sleepInterruptible(totalSec: number, stop: () => boolean): void {
   for (let i = 0; i < totalSec && !stop(); i++) execFileSync("sleep", ["1"]);
@@ -28,7 +28,11 @@ function isBypassDialog(screen: string): boolean {
 
 function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const rows = snapshot(); // reconcile + classify (marks dead)
-  updateSidebar(rows);
+  // Draw the dashboard + heartbeat on the ORCHESTRATOR's workspace (the daemon's
+  // own CMUX_WORKSPACE_ID is the daemon pane, not where the user is watching).
+  const orchWs = cfg.orchestrator.workspace;
+  updateSidebar(rows, orchWs);
+  setHeartbeat(rows, orchWs);
 
   const now = Date.now();
   const stuckThreshMs = cfg.stuckMinutes * 60_000;
@@ -79,6 +83,20 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   for (const id of Object.keys(mem.screenSince)) {
     if (!agents.find((a) => a.agentId === id)) delete mem.screenSince[id];
   }
+
+  // Idle initiative: when the fleet goes from "something running" to "fully
+  // idle", fire ONE proactive wake-prompt offering the next step. Re-arms when a
+  // new worker starts running (so each wave gets one nudge, not a stream).
+  const live = agents.filter((a) => a.status !== "dead");
+  const anyRunning = live.some((a) => a.status === "running");
+  if (anyRunning) mem.waveAnnounced = false;
+  if (cfg.proactive && !anyRunning && mem.prevAnyRunning && live.length > 0 && !mem.waveAnnounced) {
+    const text = waveCompleteMessage(live);
+    const delivery = routeMessage(cfg, text, true); // urgent → inject when idle, else inbox
+    console.log(`[daemon] ${delivery} (wave-complete): ${text}`);
+    mem.waveAnnounced = true;
+  }
+  mem.prevAnyRunning = anyRunning;
 
   console.log(`[daemon] beat · ${agents.length} agents · ${new Date().toISOString().slice(11, 19)}`);
 }

@@ -111,6 +111,10 @@ that needs you** — `awaiting-input`, stuck/zombie, error, or rate-limited:
 - **urgent** + orchestrator idle → injected as a new turn in your pane
 - otherwise → appended to `~/.fleet/daemon/inbox.md` (check it at turn start)
 
+It's also **proactive** (gated, not spammy): a live `💓 fleet` heartbeat line on
+the sidebar, and a single wake-prompt offering the next step when a wave of
+workers finishes (`--no-proactive` to disable).
+
 Scheduling is left to Claude Code's `/schedule`; a scheduled routine does its
 work with `fleet …` and calls `fleet notify-orchestrator` to report back through
 the same channel.

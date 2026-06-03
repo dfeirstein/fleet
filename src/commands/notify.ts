@@ -18,6 +18,7 @@ export function notifyOrchestrator(message: string, urgent: boolean): Delivery {
       heartbeatSec: DAEMON_DEFAULTS.heartbeatSec,
       stuckMinutes: DAEMON_DEFAULTS.stuckMinutes,
       alertCooldownSec: DAEMON_DEFAULTS.alertCooldownSec,
+      proactive: DAEMON_DEFAULTS.proactive,
     } satisfies DaemonConfig;
   }
   return routeMessage(cfg, message, urgent);
