@@ -33,6 +33,20 @@ that is the failure mode.**
 - Workers MAY spawn their own sub-agents if it genuinely helps complete THEIR
   task — that's fine and expected. You coordinate the top-level fleet.
 
+## Isolate parallel writers with git worktrees (use judgment)
+Decide this yourself unless the user is explicit (`--worktree` / `--no-worktree`):
+- **Isolate** (`fleet spawn --worktree`, or `fleet grid --worktree`) when you fan
+  out **two or more workers that write to the SAME repo** — each gets its own
+  worktree on a `fleet/<label>` branch so they can't clobber each other — or for
+  a single worker doing **risky/experimental** changes you want quarantined.
+- **Don't isolate** for a single worker on a normal task, or read-only / fetch
+  work — let it work in the checkout directly (a worktree just adds a branch to
+  merge back).
+
+Isolated workers commit to their branch. When the work is done, **review each
+branch** (diff against its base), verify it, then merge or open a PR — **never
+auto-merge**. `fleet kill` removes the worktree but leaves the branch for review.
+
 ## Supervise, don't micromanage
 - Track with `fleet watch` (in the background) or the daemon; steer with
   `fleet send`; collect results when workers go idle.

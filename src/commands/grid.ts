@@ -11,8 +11,11 @@ import {
   sendKey,
   type Target,
 } from "../cmux.js";
+import { homedir } from "node:os";
+import { join, basename } from "node:path";
 import { upsert, type Agent } from "../registry.js";
 import { buildClaudeCommand, acceptBypassDialog, type PermMode } from "./spawn.js";
+import { repoRoot, currentBranch, addWorktree } from "../git.js";
 
 export interface GridOptions {
   cols: number;
@@ -22,6 +25,11 @@ export interface GridOptions {
   model: string;
   mode: PermMode;
   task: string; // shared task for every pane; empty = launch idle workers
+  worktree: boolean; // isolate each pane in its own git worktree/branch
+}
+
+function bslug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
 }
 
 const MAX_CELLS = 9;
@@ -66,28 +74,47 @@ export function grid(opts: GridOptions): Agent[] {
 
   // 4. Launch a worker in each pane and register it as a shared-workspace agent.
   const launchedTask = opts.task.trim();
-  const command = buildClaudeCommand(opts.model, launchedTask, launchedTask.length > 0, opts.mode);
+  const repo = opts.worktree ? repoRoot(opts.cwd) : undefined;
+  if (opts.worktree && !repo) console.error(`warning: ${opts.cwd} is not a git repo — ignoring --worktree`);
   const agents: Agent[] = [];
   cells.forEach((cell, i) => {
     const target: Target = { workspace: cell.workspaceId, surface: cell.surfaceId };
+    const label = `${opts.labelPrefix}-${i + 1}`;
+
+    // Per-pane worktree isolation (each on its own branch off current HEAD).
+    let worktree: Agent["worktree"];
+    let cellTask = launchedTask;
+    let cwd = opts.cwd;
+    if (repo) {
+      const branch = `fleet/${bslug(label)}`;
+      const path = join(homedir(), ".fleet", "worktrees", `${basename(repo)}-${bslug(label)}`);
+      addWorktree(repo, path, branch);
+      worktree = { path, branch, base: currentBranch(repo), repo };
+      cwd = path;
+      if (cellTask) cellTask += `\n\n(Isolated git worktree on branch ${branch}; commit your work to it when done.)`;
+    }
+
+    const claudeCmd = buildClaudeCommand(opts.model, cellTask, cellTask.length > 0, opts.mode);
+    const command = worktree ? `cd '${worktree.path}' && ${claudeCmd}` : claudeCmd;
+
     waitForTerminal(target);
     submit(target, command);
     if (command.length > 200) sendKey(target, "Enter"); // paste-collapse guard
     if (opts.mode === "yolo") acceptBypassDialog(target);
 
-    const agentId = newAgentId();
     const agent: Agent = {
-      agentId,
-      label: `${opts.labelPrefix}-${i + 1}`,
+      agentId: newAgentId(),
+      label,
       workspace: wsRef,
       surface: cell.surfaceRef,
       workspaceId: cell.workspaceId,
       surfaceId: cell.surfaceId,
-      cwd: opts.cwd,
+      cwd,
       model: opts.model,
       mode: opts.mode,
       task: launchedTask,
       ownsWorkspace: false, // shared — workspace closes when the last member is killed
+      worktree,
       status: "running",
       spawnedAt: new Date().toISOString(),
       lastDispatchAt: new Date().toISOString(),

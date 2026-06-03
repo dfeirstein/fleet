@@ -6,7 +6,7 @@ import { grid, parseGrid, type GridOptions } from "./commands/grid.js";
 import { read } from "./commands/read.js";
 import { send } from "./commands/send.js";
 import { snapshot, renderTable } from "./commands/status.js";
-import { kill, killAll } from "./commands/kill.js";
+import { kill, killAll, reviewBranches } from "./commands/kill.js";
 import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
 import { resume } from "./commands/resume.js";
 import { orchestrate } from "./commands/orchestrate.js";
@@ -57,6 +57,7 @@ Commands:
     --model <model>        Model for the worker (default: ${SPAWN_DEFAULTS.model})
     --gated                Prompt on every risky action (forces default mode)
     --yolo                 No safety checks (--dangerously-skip-permissions)
+    --worktree [--branch B] Isolate in a git worktree on its own branch
     --command <cmd>        Override launched program (testing / non-claude)
     --no-launch            Open a bare shell; don't launch anything
     --no-autostart         Launch Claude but don't auto-send the task prompt
@@ -102,11 +103,14 @@ function main(): void {
         launch: flags["no-launch"] !== true,
         autostart: flags["no-autostart"] !== true,
         mode: flags.yolo === true ? "yolo" : flags.gated === true ? "gated" : SPAWN_DEFAULTS.mode,
+        worktree: flags.worktree === true,
+        branch: str(flags.branch),
       };
       const agent = spawn(opts);
       console.log(`spawned ${agent.agentId} (${agent.label})`);
       console.log(`  workspace: ${agent.workspace}  surface: ${agent.surface}`);
       console.log(`  cwd: ${agent.cwd}  model: ${agent.model}  mode: ${agent.mode}`);
+      if (agent.worktree) console.log(`  worktree: ${agent.worktree.branch}  (off ${agent.worktree.base})`);
       break;
     }
     case "grid": {
@@ -122,6 +126,7 @@ function main(): void {
         model: str(flags.model) ?? SPAWN_DEFAULTS.model,
         mode: flags.yolo === true ? "yolo" : flags.gated === true ? "gated" : SPAWN_DEFAULTS.mode,
         task,
+        worktree: flags.worktree === true,
       };
       const agents = grid(opts);
       console.log(`grid ${cols}x${rows} — ${agents.length} workers in ${agents[0]?.workspace} (mode: ${opts.mode}):`);
@@ -190,6 +195,7 @@ function main(): void {
       break;
     }
     case "kill": {
+      reviewBranches.length = 0;
       if (flags.all === true) {
         const n = killAll();
         clearDashboard();
@@ -199,6 +205,9 @@ function main(): void {
         if (!agent) return fail("kill requires an <agent> or --all");
         const a = kill(agent);
         console.log(`killed ${a.agentId} (${a.label})`);
+      }
+      if (reviewBranches.length) {
+        console.log(`branches left for review/merge: ${reviewBranches.join(", ")}`);
       }
       break;
     }

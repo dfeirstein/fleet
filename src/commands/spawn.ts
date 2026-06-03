@@ -13,6 +13,9 @@ import {
   type Target,
 } from "../cmux.js";
 import { upsert, remove, type Agent } from "../registry.js";
+import { homedir } from "node:os";
+import { join, basename } from "node:path";
+import { repoRoot, currentBranch, addWorktree } from "../git.js";
 
 // Worker permission posture:
 //   auto  — autonomous, but a classifier vetoes dangerous actions (default).
@@ -29,6 +32,8 @@ export interface SpawnOptions {
   command?: string; // override the launched program (testing / non-claude agents)
   launch: boolean; // false = open a bare shell, don't launch anything
   autostart: boolean; // false = launch the program but don't pass the task prompt
+  worktree: boolean; // true = isolate the worker in a git worktree on its own branch
+  branch?: string; // override the worktree branch name
 }
 
 export const SPAWN_DEFAULTS = {
@@ -36,7 +41,12 @@ export const SPAWN_DEFAULTS = {
   mode: "auto" as PermMode, // autonomous + classifier-guarded; --yolo / --gated opt out
   launch: true,
   autostart: true,
+  worktree: false,
 };
+
+function branchSlug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
+}
 
 /** Escape a string for safe inclusion inside single quotes in a POSIX shell. */
 function shellSingleQuote(s: string): string {
@@ -107,6 +117,24 @@ export function spawn(opts: SpawnOptions): Agent {
   const agentId = newAgentId();
   const label = opts.label || `agent-${agentId}`;
 
+  // Optional isolation: run the worker in its own git worktree on a fresh
+  // branch, so parallel writers on the same repo don't clobber each other. The
+  // branch is left for review/merge; we never auto-merge.
+  let worktree: Agent["worktree"];
+  let workerCwd = opts.cwd;
+  if (opts.worktree) {
+    const repo = repoRoot(opts.cwd);
+    if (!repo) {
+      console.error(`warning: ${opts.cwd} is not a git repo — ignoring --worktree`);
+    } else {
+      const branch = opts.branch ?? `fleet/${branchSlug(label)}`;
+      const path = join(homedir(), ".fleet", "worktrees", `${basename(repo)}-${branchSlug(label)}-${agentId.slice(0, 4)}`);
+      addWorktree(repo, path, branch);
+      worktree = { path, branch, base: currentBranch(repo), repo };
+      workerCwd = path;
+    }
+  }
+
   // Launch a SHORT claude command (no task) so it reliably runs via cmux
   // --command. A long task baked into the launch line gets mangled by the
   // shell's bracketed-paste on boot; we send the task after the TUI is ready.
@@ -115,7 +143,7 @@ export function spawn(opts: SpawnOptions): Agent {
     : undefined;
 
   // Create the workspace and let cmux launch the program in its terminal.
-  const ws = newWorkspace({ name: label, cwd: opts.cwd, command, focus: false });
+  const ws = newWorkspace({ name: label, cwd: workerCwd, command, focus: false });
 
   // Register immediately so the worker is tracked even if boot fails — a
   // created-but-unregistered workspace would be an untrackable orphan.
@@ -126,11 +154,12 @@ export function spawn(opts: SpawnOptions): Agent {
     surface: ws.surfaceRef,
     workspaceId: ws.workspaceId,
     surfaceId: ws.surfaceId,
-    cwd: opts.cwd,
+    cwd: workerCwd,
     model: opts.model,
     mode: opts.mode,
     task: opts.task,
     ownsWorkspace: true,
+    worktree,
     status: "running",
     spawnedAt: new Date().toISOString(),
     lastDispatchAt: new Date().toISOString(),
@@ -161,7 +190,10 @@ export function spawn(opts: SpawnOptions): Agent {
   // Dispatch the task once the TUI is ready (guarded against paste-collapse).
   // Skipped for --no-autostart and the raw --command override.
   if (opts.launch && opts.autostart && opts.task && !opts.command) {
-    if (waitForClaudeReady(t)) submitToClaude(t, opts.task);
+    const task = worktree
+      ? `${opts.task}\n\n(You are working in an isolated git worktree on branch ${worktree.branch}. Commit your changes to this branch when you finish so they can be reviewed and merged.)`
+      : opts.task;
+    if (waitForClaudeReady(t)) submitToClaude(t, task);
   }
 
   return agent;

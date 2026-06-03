@@ -1,6 +1,10 @@
 // `fleet kill <agent|--all>` — stop a worker and clean up its cmux surface.
 import { sendKey, closeWorkspace, closeSurface, workspaceExists } from "../cmux.js";
 import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
+import { hasChanges, commitAll, removeWorktree } from "../git.js";
+
+/** Branches left behind by killed worktree workers, for the caller to report. */
+export const reviewBranches: string[] = [];
 
 function sharesWorkspace(a: Agent, b: Agent): boolean {
   return (a.workspaceId ?? a.workspace) === (b.workspaceId ?? b.workspace);
@@ -36,6 +40,14 @@ function killOne(agent: Agent): void {
         }
       }
     }
+  }
+  // Worktree workers: capture any uncommitted work to the branch (so nothing is
+  // lost), remove the worktree, and leave the BRANCH for review.
+  if (agent.worktree) {
+    const { repo, path, branch } = agent.worktree;
+    if (hasChanges(path)) commitAll(path, `fleet WIP: ${agent.label}`);
+    removeWorktree(repo, path);
+    reviewBranches.push(branch);
   }
   remove(agent.agentId);
 }

@@ -25,6 +25,8 @@ export interface Agent {
   task: string;
   /** Whether spawn created its own workspace (closeable) or split an existing one. */
   ownsWorkspace: boolean;
+  /** Set when the worker runs in an isolated git worktree. */
+  worktree?: { path: string; branch: string; base: string; repo: string };
   status: AgentStatus;
   spawnedAt: string; // ISO timestamp
   /** When the worker was last given work (spawn or send) — used to tell whether

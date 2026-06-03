@@ -27,6 +27,7 @@ fleet spawn <task...>   Launch a worker on a task (new cmux workspace)
     --model <model>       Worker model (default: opus)
     --gated               Prompt on every risky action (forces default mode)
     --yolo                No safety checks (--dangerously-skip-permissions)
+    --worktree            Isolate in a git worktree on a fleet/<label> branch
     --no-autostart        Launch Claude but don't send the task prompt yet
 fleet grid <cols>x<rows> [task...]              Tile ONE workspace into a grid of
     --cwd <path> --label <prefix> [--gated|--yolo]  worker panes (shared FS).
@@ -92,8 +93,14 @@ push") — auto mode's classifier enforces them.
   layout) — visually compact and they share one filesystem. ⚠️ Because grid
   panes share a cwd, multiple workers editing the SAME files will conflict. Use a
   grid when the panes do independent work (different files/areas), or have one
-  pane drive while others assist. For parallel writers on the same code, prefer
-  `fleet spawn` with a git branch/worktree per worker.
+  pane drive while others assist.
+
+For **parallel writers on the same repo**, add `--worktree` (`fleet spawn
+--worktree` or `fleet grid --worktree`): each worker gets its own git worktree on
+a `fleet/<label>` branch so they can't clobber each other. Branches are left for
+review — diff/verify each, then merge or open a PR (never auto-merge); `fleet
+kill` removes the worktree but keeps the branch. Don't isolate single workers or
+read-only/fetch tasks.
 
 ## The daemon (always-on supervisor)
 
