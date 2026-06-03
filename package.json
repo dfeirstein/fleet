@@ -1,0 +1,18 @@
+{
+  "name": "fleet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude-Code-driven multi-agent orchestrator on top of cmux",
+  "type": "module",
+  "bin": {
+    "fleet": "./bin/fleet"
+  },
+  "scripts": {
+    "fleet": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

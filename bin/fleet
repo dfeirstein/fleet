@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# fleet — thin launcher that runs the TS CLI via tsx (no build step).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$HERE/node_modules/.bin/tsx" "$HERE/src/cli.ts" "$@"
