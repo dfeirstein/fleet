@@ -2,9 +2,10 @@
 // calls + our existing snapshot/notifications. Each beat: reconcile, classify,
 // take bounded auto-actions, escalate anything that needs the orchestrator,
 // refresh the sidebar, record liveness.
-import { execFileSync } from "node:child_process";
+import { spawn as spawnProcess } from "node:child_process";
+import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
-import { readScreen, type Target } from "../cmux.js";
+import { readScreen, cmuxBin, type Target } from "../cmux.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
 import { resume } from "../commands/resume.js";
@@ -13,10 +14,6 @@ import { updateSidebar, setHeartbeat } from "../dashboard.js";
 import { loadConfig, writeState, type DaemonConfig } from "./config.js";
 import { routeMessage } from "./channel.js";
 import { newMemory, evaluate, waveCompleteMessage, type DaemonMemory } from "./policy.js";
-
-function sleepInterruptible(totalSec: number, stop: () => boolean): void {
-  for (let i = 0; i < totalSec && !stop(); i++) execFileSync("sleep", ["1"]);
-}
 
 function sha1(s: string): string {
   return createHash("sha1").update(s).digest("hex");
@@ -110,28 +107,81 @@ export function runLoop(): void {
   const mem = newMemory();
   const startedAt = new Date().toISOString();
   const daemonWorkspace = process.env.CMUX_WORKSPACE_ID;
-  let stop = false;
-  const stopFn = () => stop;
-  process.on("SIGTERM", () => (stop = true));
-  process.on("SIGINT", () => (stop = true));
+  let ticks = 0;
+  let lastBeatMs = 0;
+  let stopping = false;
+  const MIN_BEAT_MS = 1500; // debounce bursts (an event + a tick firing together)
 
-  console.log(`[daemon] boot · orchestrator=${cfg.orchestrator.workspace} · heartbeat=${cfg.heartbeatSec}s`);
+  function doBeat(): void {
+    if (stopping) return;
+    const now = Date.now();
+    if (now - lastBeatMs < MIN_BEAT_MS) return;
+    lastBeatMs = now;
+    ticks++;
+    try {
+      beat(cfg!, mem);
+    } catch (e) {
+      console.error(`[daemon] beat error: ${(e as Error).message}`);
+    }
+    writeState({ pid: process.pid, startedAt, lastBeatAt: new Date().toISOString(), ticks, daemonWorkspace });
+  }
+
+  console.log(
+    `[daemon] boot · orchestrator=${cfg.orchestrator.workspace} · session=${cfg.session ?? "(cwd)"} · event-driven + ${cfg.heartbeatSec}s tick`,
+  );
   try {
     resume(); // reconcile registry against live cmux on startup
   } catch (e) {
     console.error(`[daemon] resume failed: ${(e as Error).message}`);
   }
+  doBeat();
 
-  let ticks = 0;
-  while (!stop) {
-    ticks++;
+  // Fast path: react to cmux's notification stream in real time (a worker's
+  // completion fires a notification, so we respond in ~1s instead of waiting for
+  // the next tick). Reconnects if the stream drops.
+  let events: ReturnType<typeof spawnProcess> | undefined;
+  function startEventStream(): void {
+    if (stopping) return;
     try {
-      beat(cfg, mem);
+      events = spawnProcess(cmuxBin(), ["events", "--category", "notification", "--no-heartbeat", "--no-ack"], {
+        env: { ...process.env, CMUX_QUIET: "1" },
+        stdio: ["ignore", "pipe", "ignore"],
+      });
     } catch (e) {
-      console.error(`[daemon] beat error: ${(e as Error).message}`);
+      console.error(`[daemon] could not start event stream: ${(e as Error).message}`);
+      return;
     }
-    writeState({ pid: process.pid, startedAt, lastBeatAt: new Date().toISOString(), ticks, daemonWorkspace });
-    sleepInterruptible(cfg.heartbeatSec, stopFn);
+    if (events.stdout) {
+      createInterface({ input: events.stdout }).on("line", (line) => {
+        if (/notification\.(created|requested)/.test(line)) doBeat();
+      });
+    }
+    events.on("exit", () => {
+      if (!stopping) {
+        console.error("[daemon] event stream dropped; reconnecting in 3s");
+        setTimeout(startEventStream, 3000);
+      }
+    });
   }
-  console.log("[daemon] stopped");
+  startEventStream();
+
+  // Slow path: periodic tick for the sidebar pulse, stuck/zombie detection (the
+  // absence of events), and a safety net.
+  const timer = setInterval(doBeat, cfg.heartbeatSec * 1000);
+
+  function shutdown(): void {
+    if (stopping) return;
+    stopping = true;
+    clearInterval(timer);
+    try {
+      events?.kill();
+    } catch {
+      /* ignore */
+    }
+    console.log("[daemon] stopped");
+    process.exit(0);
+  }
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+  // The interval + event stream keep the process alive.
 }

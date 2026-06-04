@@ -33,6 +33,11 @@ export class CmuxError extends Error {
   }
 }
 
+/** The resolved cmux binary path (for spawning long-lived subprocesses like the event stream). */
+export function cmuxBin(): string {
+  return CMUX_BIN;
+}
+
 /** Run a cmux subcommand, returning trimmed stdout. Throws CmuxError on failure. */
 export function cmux(args: string[]): string {
   try {
