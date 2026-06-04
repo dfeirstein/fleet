@@ -30,7 +30,7 @@ money on fire to feel fancy."
 ## The thesis
 
 **Fleet evolves from a reactive worker-dispatcher into a loop-and-workflow
-engine.** The orchestrator stops being a thing you hand single tasks to and
+engine.** The Fleet Captain stops being a thing you hand single tasks to and
 becomes a thing that *pursues objectives*: it picks the right level of
 orchestration, generates workflows when the task warrants, runs them on the right
 substrate, **gates every result on independent evaluation**, and **promotes
@@ -39,7 +39,7 @@ cmux.
 
 ## Two substrates, one orchestrator
 
-The orchestrator chooses *where* work runs, not just how many workers:
+The Captain chooses *where* work runs, not just how many workers:
 
 - **Fleet workers** — visible cmux-pane Claude Code sessions. *Watchable,
   steerable, long-running, bound to a project workspace.* Best for **building and
@@ -90,7 +90,7 @@ max-iteration / budget stop. Default to the cheapest tier that solves the task.
 
 ## cmux is the control plane
 
-Everything the orchestrator does should be visible *in cmux*: workflow progress,
+Everything the Captain does should be visible *in cmux*: workflow progress,
 eval verdicts, objective/loop state as sidebar badges, and final artifacts opened
 in browser surfaces. Move the daemon from 12s polling to the cmux **event
 stream** for real-time, lower-overhead supervision.

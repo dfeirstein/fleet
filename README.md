@@ -9,7 +9,7 @@ It's the [pi-style multi-agent rig from the cmux demo](https://youtu.be/8jDXI4_r
 rebuilt as a thin CLI you drive from any project in plain language.
 
 ```
-You ⇄ Claude Code (orchestrator)         ← your Max session
+You ⇄ Claude Code (Fleet Captain)        ← your Max session
         │  loads the `fleet` skill
         ▼
       fleet spawn / grid / read / send / watch / status / kill
@@ -40,14 +40,14 @@ doing what.
 ## Install
 
 ```bash
-git clone https://github.com/dfeirstein/cmux-orchestrator.git
-cd cmux-orchestrator
+git clone https://github.com/dfeirstein/fleet.git
+cd fleet
 ./install.sh        # checks prereqs, npm install, links `fleet` + the skill
 fleet doctor        # confirm everything's green
 ```
 
 `install.sh` checks for cmux/Node/git, installs deps (no build step — TS runs via
-`tsx`), symlinks `fleet` into `~/.local/bin`, and installs the orchestrator skill
+`tsx`), symlinks `fleet` into `~/.local/bin`, and installs the Fleet skill
 into `~/.claude/skills`. If `~/.local/bin` isn't on your PATH, add it
 (`export PATH="$HOME/.local/bin:$PATH"`) and reopen your shell.
 
@@ -60,7 +60,7 @@ Then spin up your control plane:
 fleet orchestrate Mario     # a badged "🎛 Mario" workspace you talk to
 ```
 
-`fleet` runs from any directory; each orchestrator gets its own isolated fleet
+`fleet` runs from any directory; each Captain gets its own isolated fleet
 session, and workers can be dispatched into any project.
 
 ## Quickstart
@@ -91,7 +91,7 @@ fleet kill --all                                          # tear everything down
 | `fleet kill <agent\|--all>` | Stop a worker and clean up its pane/workspace |
 | `fleet resume` | Reconcile the registry against live cmux (prune dead, refresh refs) |
 | `fleet daemon <start\|stop\|status>` | Always-on heartbeat supervisor |
-| `fleet notify-orchestrator <msg> [--urgent]` | Push a message to the orchestrator |
+| `fleet notify-orchestrator <msg> [--urgent]` | Push a message to the Captain |
 
 Agents are matched by id, id-prefix, or label.
 
@@ -123,7 +123,7 @@ on the openclaw / Hermes gateway). Each beat it reconciles the fleet, refreshes
 the sidebar, auto-clears stuck `--yolo` bypass dialogs, and **escalates anything
 that needs you** — `awaiting-input`, stuck/zombie, error, or rate-limited:
 
-- **urgent** + orchestrator idle → injected as a new turn in your pane
+- **urgent** + Captain idle → injected as a new turn in your pane
 - otherwise → appended to `~/.fleet/daemon/inbox.md` (check it at turn start)
 
 It's also **proactive** (gated, not spammy): a live `💓 fleet` heartbeat line on
