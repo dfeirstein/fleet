@@ -35,15 +35,15 @@ export function orchestrate(name: string, opts: { daemon?: boolean } = {}): Orch
   const promptPath = join(fleetDir(), `orchestrator-prompt-${session}.md`);
   writeFileSync(
     promptPath,
-    `You are "${name}", the user's Fleet Orchestrator for this cmux environment. ` +
+    `You are "${name}", the Fleet Captain — the orchestrator of this cmux fleet. ` +
       `Your fleet runs under session "${session}".\n\n${baseDoctrine}`,
   );
 
-  // Launch an interactive Claude orchestrator in a new, focused, badged workspace.
-  // FLEET_SESSION pins this orchestrator's fleet to its own named registry, so
-  // its workers are isolated from other sessions regardless of cwd.
+  // Launch the interactive Captain (a Claude session) in a new focused, badged
+  // workspace. FLEET_SESSION pins the fleet to its own named registry, so its
+  // workers are isolated from other sessions regardless of cwd.
   const command = `FLEET_SESSION=${session} claude --append-system-prompt-file '${promptPath}'`;
-  const ws = newWorkspace({ name: `🎛 ${name}`, cwd: homedir(), command, focus: true });
+  const ws = newWorkspace({ name: `⚓ ${name}`, cwd: homedir(), command, focus: true });
 
   const record: OrchestratorRecord = {
     name,
@@ -60,7 +60,7 @@ export function orchestrate(name: string, opts: { daemon?: boolean } = {}): Orch
     cmux([
       "set-status",
       "fleet:role",
-      `🎛 ORCHESTRATOR · ${name}`,
+      `⚓ FLEET CAPTAIN · ${name}`,
       "--workspace",
       ws.workspaceId,
       "--color",

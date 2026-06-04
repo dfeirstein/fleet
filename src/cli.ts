@@ -79,8 +79,9 @@ Commands:
   status                                     Snapshot fleet table
   verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator)
   capture <name> --from <agent>              Promote a worker into a reusable skill
-  objective <goal...> --done <check>         Loop a worker until a stop condition
-        [--cwd P] [--max N] [--model M]       (shell check) passes
+  objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
+        [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
+                                             eval gate in the worker's worktree)
   resume                                      Reconcile registry vs live cmux
                                              (prune dead, refresh refs)
   watch [--interval N] [--timeout N]         Poll until the fleet is idle;
@@ -89,8 +90,8 @@ Commands:
   kill <agent | --all>                       Stop a worker and clean up
   setup                                      Link fleet onto PATH + install skill
   doctor                                     Diagnose the install (cmux/PATH/…)
-  orchestrate [name]                         Declare a new orchestrator workspace
-                                             (a badged control plane you talk to)
+  orchestrate|captain [name]                 Appoint a Fleet Captain — a badged
+                                             control-plane workspace you talk to
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
                                              stuck/zombie detection, escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
@@ -174,11 +175,12 @@ function main(): void {
       doctor();
       break;
     }
-    case "orchestrate": {
-      const name = positionals.join(" ").trim() || "Orchestrator";
+    case "orchestrate":
+    case "captain": {
+      const name = positionals.join(" ").trim() || "Captain";
       const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true });
-      console.log(`🎛 Orchestrator "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
-      console.log(`Switch to the "🎛 ${rec.name}" workspace in cmux and talk to it to orchestrate.`);
+      console.log(`⚓ Fleet Captain "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
+      console.log(`Switch to the "⚓ ${rec.name}" workspace in cmux and talk to the Captain.`);
       console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
       break;
     }
@@ -202,12 +204,16 @@ function main(): void {
     case "objective": {
       const goal = positionals.join(" ").trim();
       if (!goal) return fail("objective requires a <goal>");
-      const doneCheck = str(flags.done);
-      if (!doneCheck) return fail('objective requires --done "<shell check>"');
+      // --verify routes the stop-condition through the eval gate (`fleet verify`,
+      // run in the worker's cwd/worktree); --done runs it inline in --cwd.
+      const viaVerify = str(flags.verify) != null;
+      const doneCheck = str(flags.verify) ?? str(flags.done);
+      if (!doneCheck) return fail('objective requires --done "<check>" or --verify "<check>"');
       const res = objective(goal, doneCheck, {
         cwd: str(flags.cwd) ?? process.cwd(),
         maxIterations: str(flags.max) ? Number(str(flags.max)) : 3,
         model: str(flags.model),
+        viaVerify,
       });
       console.log(`objective ${res.done ? "DONE" : "NOT met"} after ${res.iterations} iteration(s)`);
       if (!res.done) process.exitCode = 1;

@@ -1,7 +1,7 @@
-# fleet
+# Fleet
 
 A multi-agent orchestrator for [cmux](https://github.com/manaflow-ai/cmux). One
-Claude Code session becomes an **orchestrator** that launches, steers, and
+Claude Code session becomes the **Fleet Captain** that launches, steers, and
 monitors a fleet of **worker** Claude Code sessions — each in its own cmux pane,
 all running under your **Max plan** ($0 per token, no API key).
 

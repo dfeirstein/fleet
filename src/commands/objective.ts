@@ -35,11 +35,16 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { spawn } from "./spawn.js";
 import { kill } from "./kill.js";
 import { snapshot } from "./status.js";
+import { verify } from "./verify.js";
 
 export interface ObjectiveOptions {
   cwd: string;
   maxIterations: number;
   model?: string;
+  /** Run the stop-condition through `fleet verify` (the eval gate) against the
+   *  worker — runs in the worker's cwd/worktree and uses the shared gate
+   *  (judge≠generator) instead of an inline shell check. (compose B+D) */
+  viaVerify?: boolean;
 }
 
 export interface ObjectiveResult {
@@ -120,17 +125,27 @@ export function objective(goal: string, doneCheck: string, opts: ObjectiveOption
     console.log(`  spawned ${agent.agentId} (${agent.label}) — waiting for its turn to finish…`);
 
     const outcome = waitForIdle(agent.agentId, WAIT_TIMEOUT_MS);
-    console.log(`  worker turn ended (${outcome}); running done-check: ${doneCheck}`);
 
-    const check = runCheck(doneCheck, opts.cwd);
+    // Run the stop-condition. Via the eval gate (`fleet verify`, run in the
+    // worker's cwd/worktree — compose B+D) or as an inline shell check in --cwd.
+    // Either way, run it BEFORE killing the worker so the agent still resolves.
+    let check: { ok: boolean; code: number; output: string };
+    if (opts.viaVerify) {
+      console.log(`  worker turn ended (${outcome}); eval gate: fleet verify ${agent.label} --check ${doneCheck}`);
+      const v = verify(agent.agentId, doneCheck);
+      check = { ok: v.pass, code: v.pass ? 0 : 1, output: v.output };
+    } else {
+      console.log(`  worker turn ended (${outcome}); running done-check: ${doneCheck}`);
+      check = runCheck(doneCheck, opts.cwd);
+    }
     safeKill(agent.agentId);
 
     if (check.ok) {
-      console.log(`  ✓ done-check passed on attempt ${iteration}.`);
+      console.log(`  ✓ ${opts.viaVerify ? "eval gate" : "done-check"} passed on attempt ${iteration}.`);
       return { done: true, iterations: iteration };
     }
 
-    console.log(`  ✗ done-check failed (exit ${check.code}) on attempt ${iteration}.`);
+    console.log(`  ✗ ${opts.viaVerify ? "eval gate" : "done-check"} failed (exit ${check.code}) on attempt ${iteration}.`);
     // Feed the failure forward so the next worker has the context it needs.
     currentGoal =
       `${goal}\n\n` +

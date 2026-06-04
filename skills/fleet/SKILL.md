@@ -3,9 +3,9 @@ name: fleet
 description: Orchestrate multiple Claude Code worker agents in parallel using the `fleet` CLI on top of cmux. Use when the user asks to "spawn agents", "run agents in parallel", "fan out", "orchestrate", "use a team of agents", "split into a grid of agents", "have N agents build X", or otherwise wants the current Claude session to act as an orchestrator that launches and steers other Claude Code workers. Workers run under the user's Max plan (no API key). Works from any project directory; each project gets its own isolated fleet.
 ---
 
-# fleet — multi-agent orchestrator on cmux
+# Fleet — multi-agent orchestrator on cmux
 
-You (this Claude Code session) are the **orchestrator**. You launch and steer
+You (this Claude Code session) are the **Fleet Captain**. You launch and steer
 **worker** Claude Code sessions, each in its own cmux workspace, by shelling out
 to the `fleet` CLI. Workers run under the user's Max plan ($0.00 per token, no
 API key). The registry is **per-project** (keyed off the git root / cwd), so
