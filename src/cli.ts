@@ -12,6 +12,9 @@ import { resume } from "./commands/resume.js";
 import { orchestrate } from "./commands/orchestrate.js";
 import { setup } from "./commands/setup.js";
 import { doctor } from "./commands/doctor.js";
+import { verify } from "./commands/verify.js";
+import { capture } from "./commands/capture.js";
+import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
 import { notifyOrchestrator } from "./commands/notify.js";
 import { clearDashboard } from "./dashboard.js";
@@ -74,6 +77,10 @@ Commands:
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
+  verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator)
+  capture <name> --from <agent>              Promote a worker into a reusable skill
+  objective <goal...> --done <check>         Loop a worker until a stop condition
+        [--cwd P] [--max N] [--model M]       (shell check) passes
   resume                                      Reconcile registry vs live cmux
                                              (prune dead, refresh refs)
   watch [--interval N] [--timeout N]         Poll until the fleet is idle;
@@ -173,6 +180,37 @@ function main(): void {
       console.log(`🎛 Orchestrator "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
       console.log(`Switch to the "🎛 ${rec.name}" workspace in cmux and talk to it to orchestrate.`);
       console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
+      break;
+    }
+    case "verify": {
+      const agent = positionals[0];
+      if (!agent) return fail("verify requires an <agent>");
+      const { pass, output } = verify(agent, str(flags.check));
+      if (output) console.log(output);
+      console.log(pass ? "PASS" : "FAIL");
+      if (!pass) process.exitCode = 1;
+      break;
+    }
+    case "capture": {
+      const name = positionals[0];
+      const from = str(flags.from);
+      if (!name || !from) return fail('capture requires <name> --from <agent>');
+      const path = capture(name, from);
+      console.log(`captured → ${path}`);
+      break;
+    }
+    case "objective": {
+      const goal = positionals.join(" ").trim();
+      if (!goal) return fail("objective requires a <goal>");
+      const doneCheck = str(flags.done);
+      if (!doneCheck) return fail('objective requires --done "<shell check>"');
+      const res = objective(goal, doneCheck, {
+        cwd: str(flags.cwd) ?? process.cwd(),
+        maxIterations: str(flags.max) ? Number(str(flags.max)) : 3,
+        model: str(flags.model),
+      });
+      console.log(`objective ${res.done ? "DONE" : "NOT met"} after ${res.iterations} iteration(s)`);
+      if (!res.done) process.exitCode = 1;
       break;
     }
     case "resume": {
