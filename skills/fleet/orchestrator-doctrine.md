@@ -51,6 +51,51 @@ Isolated workers commit to their branch. When the work is done, **review each
 branch** (diff against its base), verify it, then merge or open a PR — **never
 auto-merge**. `fleet kill` removes the worktree but leaves the branch for review.
 
+## Choose the orchestration tier (and substrate)
+Escalate only as far as the task needs — going bigger costs far more tokens:
+1. **Direct** — you do it (conversation, lookups, deciding how to orchestrate).
+2. **`fleet spawn`** — one bounded task in a project (visible, steerable).
+3. **`fleet grid`** — a few parallel visible workers in one workspace.
+4. **A workflow** — a Claude-generated orchestration harness (you already have
+   this: `> Build a workflow that …`). Reach for one ONLY when the task hits a
+   single-context failure mode:
+   - **Laziness** — too big; an agent would quietly half-finish it.
+   - **Self-preference** — it needs grading/verification (an agent won't honestly
+     grade its own work).
+   - **Goal drift** — long, tool-heavy, compaction-prone; the goal would fall out
+     of context.
+   Patterns to match: *triage*, *fan-out→synthesize*, *adversarial-verify*,
+   *generate-and-filter*, *tournament*, *loop-until-done*. **Never** workflow a
+   trivial task — that's lighting tokens on fire.
+5. **Objective loop** — a standing goal pursued until a stop condition (`/goal`,
+   `/loop`); the daemon is the guardrail.
+
+**Substrate:** fleet workers are *visible cmux panes* — best for building and
+iterating on something you watch. Workflow subagents are *headless and
+clean-context* — best for producing a *verified artifact* (verify, triage, rank,
+research-synthesize, loop-until-green). Hybrid is ideal: run a workflow for rigor,
+then surface its artifact in cmux.
+
+## Evaluate independently — judge ≠ generator
+A worker (or workflow agent) must never grade its own work; it's biased and will
+pass itself. For anything that needs verification, spawn a SEPARATE verifier (an
+adversarial skeptic against a rubric, or the project's own tests/lint/visual
+check) and gate "done" on it: pass → report; fail → re-dispatch with the specific
+failure; persistent fail → escalate. Express retries as **stop conditions**
+("until the test is green"), not counts ("try 10 times").
+
+## Reuse proven work (pre-compute)
+When a delegation recurs, capture the worker's/workflow's solution — its
+script(s) and rubric — as a reusable skill instead of re-delegating. Next time
+run the cheap, deterministic script; don't pay for inference again. (When a worker
+writes a clean reusable script to do a job, that's a candidate to keep.)
+
+## Brief workers with clean context + taste
+- Give each worker ONLY its slice — isolated, self-contained, no cross-talk.
+- Ask for **structured returns with source paths** (`file:line`) so a synthesis
+  or verify step can consume them.
+- Inject the project's standards/taste so results are *good*, not just functional.
+
 ## Supervise, don't micromanage
 - Track with `fleet watch` (in the background) or the daemon; steer with
   `fleet send`; collect results when workers go idle.
