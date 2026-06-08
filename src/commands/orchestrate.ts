@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { newWorkspace, cmux } from "../cmux.js";
+import { newWorkspace, closeWorkspace, cmux } from "../cmux.js";
 import { loadOrchestrator, orchestratorPath, type OrchestratorRecord } from "../orchestrator-record.js";
 import { daemonStart, daemonStop } from "./daemon.js";
 
@@ -17,7 +17,7 @@ function fleetDir(): string {
   return join(homedir(), ".fleet");
 }
 
-export function orchestrate(name: string, opts: { daemon?: boolean } = {}): OrchestratorRecord {
+export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boolean } = {}): OrchestratorRecord {
   mkdirSync(fleetDir(), { recursive: true });
   const session = slug(name);
 
@@ -42,7 +42,25 @@ export function orchestrate(name: string, opts: { daemon?: boolean } = {}): Orch
   // Launch the interactive Captain (a Claude session) in a new focused, badged
   // workspace. FLEET_SESSION pins the fleet to its own named registry, so its
   // workers are isolated from other sessions regardless of cwd.
-  const command = `FLEET_SESSION=${session} claude --append-system-prompt-file '${promptPath}'`;
+  //
+  // --resume re-appoints an EXISTING Captain without losing her context: `claude
+  // --continue` resumes the most recent conversation in this cwd (homedir) and
+  // re-applies the (possibly updated) doctrine system prompt on top of it. Use it
+  // to adopt new doctrine mid-life; the prior workspace should be closed after.
+  const cont = opts.resume ? "--continue " : "";
+  const command = `FLEET_SESSION=${session} claude ${cont}--append-system-prompt-file '${promptPath}'`;
+
+  // When resuming, close the previous Captain workspace FIRST so its process
+  // releases the conversation file — `claude --continue` must be the only process
+  // on that session, or the shared history file can corrupt.
+  if (opts.resume && prev?.workspaceId) {
+    try {
+      closeWorkspace(prev.workspaceId);
+    } catch {
+      // already gone — fine
+    }
+  }
+
   const ws = newWorkspace({ name: `⚓ ${name}`, cwd: homedir(), command, focus: true });
 
   const record: OrchestratorRecord = {

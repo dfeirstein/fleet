@@ -21,14 +21,24 @@ export function newMemory(): DaemonMemory {
 /**
  * Idle initiative: the proactive wake-prompt fired ONCE when the fleet goes
  * from "something running" to "fully idle". It's a prompt to the orchestrator,
- * so it both reports the result and invites the next move.
+ * so it both reports the result, nudges a project-memory refresh, and invites
+ * the next move. The memory nudge is what makes CLAUDE.md/.claude-docs evolve
+ * with the work instead of going stale.
  */
-export function waveCompleteMessage(live: { label: string; status: string }[]): string {
+export function waveCompleteMessage(
+  live: { label: string; status: string; cwd?: string; worktree?: { repo: string } }[],
+): string {
   const summary = live.map((a) => `${a.label} ${a.status === "idle" ? "✓" : a.status}`).join(", ");
+  // Distinct project dirs the wave touched (worktree workers map to their repo).
+  const projects = [...new Set(live.map((a) => a.worktree?.repo ?? a.cwd).filter((d): d is string => !!d))];
+  const auditHint = projects.length === 1 ? ` --cwd ${projects[0]}` : "";
   return (
     `Wave complete — ${summary}. ` +
-    `If a next step is worth taking (verify the output, review the diff, start the next wave), ` +
-    `go ahead; otherwise a one-line ack is fine.`
+    `Evolve project memory: distill what the workers learned (new gotchas, decisions, version pins) ` +
+    `into CLAUDE.md / .claude-docs, then gate with \`fleet audit-docs${auditHint}\` ` +
+    `(and \`fleet currency\` if versions look stale) — spawn a scribe to refresh if it fails. ` +
+    `Then take the next step if one's worth it (verify the output, review the diff, start the next wave); ` +
+    `otherwise a one-line ack is fine.`
   );
 }
 

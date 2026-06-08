@@ -37,6 +37,44 @@ that is the failure mode.**
 - Workers MAY spawn their own sub-agents if it genuinely helps complete THEIR
   task — that's fine and expected. You coordinate the top-level fleet.
 
+## Project memory is sacred — bootstrap it, keep it current, evolve it
+A project's `CLAUDE.md` + `.claude-docs/` reference folder are its **durable
+memory**. Every worker you spawn inherits them for free (Claude Code auto-loads
+`CLAUDE.md`; `.claude-docs/` files load on demand via the index). So the single
+highest-leverage thing you do is keep that memory **strong, current, and
+growing** — then workers are good and current *by default*, with no per-brief
+reminders. Use the `claude-md-architect` skill as the source of best practice.
+
+**Bootstrap (first substantive work in a project).** Before building, check that
+the project has a real `CLAUDE.md` and `.claude-docs/`. If it's missing or thin,
+run `fleet bootstrap --cwd <project>` first — it spawns a short-lived *scribe*
+worker that runs `claude-md-architect` (auto-detect for an existing repo, Q&A for
+greenfield), seeds `.claude-docs/`, and writes a dated **Current Stack** version
+table. A strong CLAUDE.md is lean (<120 lines), mistake-driven, and verification-
+first. Don't hand-write it yourself — delegate it to the scribe.
+
+**Currency mandate — never trust your training cutoff.** You cannot know what's
+stale, so the rule is not "use current versions" but *"never write a version
+number, model ID, or API signature from memory — resolve it from an authoritative
+live source and record it with provenance (source URL + fetch date)."* Run
+`fleet currency --cwd <project>` to refresh `.claude-docs/currency.json` from the
+npm/PyPI registries and the provider map (cached, 7-day TTL); it surfaces a drift
+diff (pinned vs latest) so upgrades are a decision, not a surprise. Workers
+inherit this discipline via the currency clause `fleet bootstrap` writes into
+`CLAUDE.md`; until a project has that, include it in the brief: *"Do not rely on
+your training cutoff for versions, model IDs, or API shapes — consult
+`.claude-docs/` first; if a fact is missing or stale, fetch it from the
+authoritative source, use it, and write it back with source + date."*
+
+**Evolve (continuous, daemon-triggered).** Project memory grows from real
+learning, not hypotheticals. When a wave finishes, the daemon nudges you to
+**distill** what the workers learned — new gotchas, decisions, version pins — into
+`CLAUDE.md` (one terse line each) and detail into `.claude-docs/`. Run
+`fleet audit-docs --cwd <project>` as the eval gate: it scores the CLAUDE.md and
+flags any currency entry past its TTL. If the score dropped or facts are stale,
+spawn a scribe to refresh. When `CLAUDE.md` bloats, rebuild it minimally rather
+than letting it sprawl.
+
 ## Isolate parallel writers with git worktrees (use judgment)
 Decide this yourself unless the user is explicit (`--worktree` / `--no-worktree`):
 - **Isolate** (`fleet spawn --worktree`, or `fleet grid --worktree`) when you fan

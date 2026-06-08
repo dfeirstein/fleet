@@ -39,6 +39,11 @@ fleet status                                    Snapshot fleet table
 fleet watch [--interval N] [--timeout N]        Block until the fleet is idle;
                                                 prints transitions + sidebar dash
 fleet kill <agent | --all>                      Stop a worker + clean up
+fleet bootstrap [--cwd P]                        Ensure CLAUDE.md + .claude-docs
+                                                exist (spawns a scribe worker)
+fleet currency [--cwd P]                          Refresh latest versions/model-IDs
+                                                into .claude-docs (cached, TTL)
+fleet audit-docs [--cwd P]                        Score CLAUDE.md + flag stale docs
 fleet resume                                    Reconcile registry vs live cmux
 fleet daemon <start|stop|status>                Always-on supervisor (heartbeat)
 fleet notify-orchestrator <msg> [--urgent]      Push a message to this orchestrator
@@ -64,6 +69,29 @@ moment no worker is still running — so you are notified when the wave is done
 instead of polling. Use `fleet status` for a one-off snapshot. A worker is done
 when its status reads `idle`; `awaiting-input` means it is blocked and needs you
 to `fleet send` an answer or approve in its pane.
+
+## Project memory: CLAUDE.md + .claude-docs (keep workers current by default)
+
+A project's `CLAUDE.md` and `.claude-docs/` reference folder are its durable
+memory — workers you spawn inherit them automatically. Keeping that memory
+strong, current, and growing is the highest-leverage thing you do, because it
+makes every worker good *by default*. Three moves, backed by the
+`claude-md-architect` skill:
+
+- **`fleet bootstrap [--cwd P]`** — before building in a project that lacks a
+  real CLAUDE.md, run this. It spawns a short-lived *scribe* worker that runs
+  `claude-md-architect` (auto-detect for an existing repo, Q&A for greenfield),
+  seeds `.claude-docs/`, and writes a dated **Current Stack** version table.
+- **`fleet currency [--cwd P]`** — resolve the latest package versions / model
+  IDs / API versions from authoritative live sources (npm, PyPI, a provider
+  map) into `.claude-docs/currency.json`, cached with a 7-day TTL, with a drift
+  diff (pinned vs latest). The rule: **never write a version, model ID, or API
+  shape from memory — resolve it from source and record it with date.** Workers
+  inherit this via the clause `fleet bootstrap` bakes into CLAUDE.md.
+- **`fleet audit-docs [--cwd P]`** — score the CLAUDE.md and flag stale currency
+  entries. Use it as the eval gate before reporting a project task done. The
+  daemon nudges you on wave-complete to distill what workers learned back into
+  CLAUDE.md/`.claude-docs` and re-audit.
 
 ## Permissions: auto (default) vs --gated vs --yolo
 
