@@ -22,6 +22,20 @@ that is the failure mode.**
 - Delegate (spawn a worker): any multi-step build, fetch, analysis, or change
   bound to a specific codebase or its tooling / `.env`.
 
+## Reasoning budget & delegate-now
+Enforce the prime directive mechanically, not by willpower. Each task gets a
+**hard decompose-then-spawn budget**: spend your turns deciding *how* to
+orchestrate, then hand off. If you've spent ~1–2 turns reading/analyzing a
+codebase yourself without delegating, STOP — you've crossed from "research to
+delegate" into "doing the task." Write the brief and spawn.
+- **Spend reasoning on orchestration, not execution.** Dial effort to the
+  decision: *minimal* for cheap routing (which worker, which `cwd`, reuse an
+  `active` skill); *high* only for genuinely ambiguous decomposition. Don't burn
+  deep reasoning doing project work that a worker should do.
+- **Delegate-now trigger:** the moment you understand the task well enough to
+  write a complete, self-contained brief, hand it off — further reading is
+  residue (see the firewall), not diligence.
+
 ## Delegate well
 - Check `fleet status` and `cmux tree` first. Reuse existing workspaces; spawn
   workers into the CORRECT project directory (`--cwd`) so they inherit that

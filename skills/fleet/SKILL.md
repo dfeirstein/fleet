@@ -63,6 +63,11 @@ Agents are matched by id, id-prefix, or label.
 5. **Collect** results when workers go idle, summarize for the user, then
    `fleet kill` the finished workers (or `fleet kill --all` at the end).
 
+**Reasoning budget:** spend your turns deciding *how* to orchestrate, then hand
+off — if you've spent ~1–2 turns reading a codebase yourself without delegating,
+stop and spawn a worker. Dial reasoning effort to the decision (minimal for
+routing, high only for ambiguous decomposition), not to doing the work.
+
 To wait for a wave, run `fleet watch` in the background (run_in_background): it
 prints status transitions, mirrors state to the cmux sidebar, and exits the
 moment no worker is still running — so you are notified when the wave is done
