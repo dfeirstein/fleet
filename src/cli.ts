@@ -18,6 +18,8 @@ import { currency } from "./commands/currency.js";
 import { auditDocs } from "./commands/audit-docs.js";
 import { readOutcomes } from "./outcomes.js";
 import { digest, renderDigests } from "./commands/digest.js";
+import { recall } from "./commands/recall.js";
+import { profile } from "./commands/profile.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -91,6 +93,10 @@ Commands:
                                              (eval gate; exits non-zero on fail)
   digest                                     Capture live workers' output to disk
                                              (.claude-docs/.../waves) + return digests
+  recall <query...> [--cwd P] [--qmd]        Search the durable store (outcome log +
+                                             .claude-docs) via grep; --qmd uses QMD
+  profile [--cwd P]                          Write a per-project profile (.claude-docs)
+                                             from the outcome log — load it on re-entry
   outcomes [--tail N] [--json]               Show the delegation-outcome log
                                              (the trajectory store; spawn/verify/kill)
   capture <name> --from <agent>              Promote a worker into a reusable skill
@@ -268,6 +274,25 @@ async function main(): Promise<void> {
       console.log(renderDigests(waveId, digests));
       const wrote = digests.filter((d) => d.wavePath).length;
       console.log(`captured ${wrote}/${digests.length} worker(s) to disk under .claude-docs/.../waves/${waveId}/`);
+      break;
+    }
+    case "recall": {
+      const query = positionals.join(" ").trim();
+      if (!query) return fail('recall requires a "<query>"');
+      const res = recall(query, { cwd: str(flags.cwd) ?? process.cwd(), qmd: flags.qmd === true });
+      if (res.source === "none") {
+        console.log("nothing to recall yet (no ~/.fleet or .claude-docs store)");
+      } else if (res.hits.length === 0) {
+        console.log(`no matches for "${query}" (via ${res.source})`);
+      } else {
+        console.log(`${res.hits.length} hit(s) for "${query}" via ${res.source}:`);
+        for (const h of res.hits) console.log(`  ${h}`);
+      }
+      break;
+    }
+    case "profile": {
+      const path = profile({ cwd: str(flags.cwd) ?? process.cwd() });
+      console.log(`wrote ${path}`);
       break;
     }
     case "outcomes": {

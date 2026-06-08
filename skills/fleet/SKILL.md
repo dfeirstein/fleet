@@ -44,6 +44,12 @@ fleet bootstrap [--cwd P]                        Ensure CLAUDE.md + .claude-docs
 fleet currency [--cwd P]                          Refresh latest versions/model-IDs
                                                 into .claude-docs (cached, TTL)
 fleet audit-docs [--cwd P]                        Score CLAUDE.md + flag stale docs
+fleet digest                                      Capture a finished wave's output to
+                                                disk; return only compact digests
+fleet recall <query...> [--cwd P] [--qmd]         Search the durable store (grep core;
+                                                --qmd for semantic, if QMD set up)
+fleet profile [--cwd P]                           Per-project profile to load on re-entry
+fleet outcomes [--tail N] [--json]                The delegation-outcome trajectory log
 fleet resume                                    Reconcile registry vs live cmux
 fleet daemon <start|stop|status>                Always-on supervisor (heartbeat)
 fleet notify-orchestrator <msg> [--urgent]      Push a message to this orchestrator
