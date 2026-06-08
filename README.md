@@ -1,12 +1,80 @@
 # Fleet
 
 A multi-agent orchestrator for [cmux](https://github.com/manaflow-ai/cmux). One
-Claude Code session becomes the **Fleet Captain** that launches, steers, and
+Claude Code session becomes the **⚓ Fleet Captain** that launches, steers, and
 monitors a fleet of **worker** Claude Code sessions — each in its own cmux pane,
 all running under your **Max plan** ($0 per token, no API key).
 
 It's the [pi-style multi-agent rig from the cmux demo](https://youtu.be/8jDXI4_rJOE),
 rebuilt as a thin CLI you drive from any project in plain language.
+
+---
+
+## Zero to Captain — 4 steps
+
+You don't wire anything up by hand. You install one terminal, launch Claude, and
+ask it — in plain English — to set up the rest.
+
+### 1. Install cmux
+
+cmux is the GPU-accelerated terminal Fleet runs on. Download the macOS app from
+**[cmux.com](https://cmux.com)** (source: [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux)).
+
+### 2. Open cmux and type `claude`
+
+Claude Code launches right inside a cmux terminal. Log in with your **Pro / Max /
+Team** subscription — every worker the Captain spawns inherits that session, so
+it's **$0 per token, no API key**.
+
+### 3. Tell Claude:
+
+> **“clone fleet and launch my captain.”**
+
+### 4. That's it.
+
+Claude clones Fleet, installs it, runs a health check, and hands you a badged
+**⚓ Captain** workspace. From there you talk to the Captain in plain language and
+it runs the fleet for you.
+
+---
+
+### What that one sentence resolves to
+
+“clone fleet and launch my captain” is all you say — Claude runs the block below
+and drops you into a Captain session. It's also a copy-paste path if you'd rather
+do it yourself:
+
+```bash
+git clone https://github.com/dfeirstein/fleet.git
+cd fleet && ./install.sh        # checks cmux/Node/git, npm install (no build), links `fleet` + the skill
+fleet doctor                    # confirm green
+fleet captain                   # launches "⚓ <YourName>" — your Fleet Captain workspace
+```
+
+`install.sh` checks for cmux/Node/git, installs deps (no build step — TS runs via
+`tsx`), symlinks `fleet` into `~/.local/bin`, and installs the Fleet skill into
+`~/.claude/skills`. If `~/.local/bin` isn't on your PATH, add it
+(`export PATH="$HOME/.local/bin:$PATH"`) and reopen your shell.
+
+- **`fleet doctor`** — diagnose an install (cmux reachable? PATH? skill? daemon?).
+- **`fleet setup`** — re-link after a `git pull` (idempotent).
+
+```
+$ fleet doctor
+
+  ✓ Node 22.22.2
+  ✓ cmux reachable
+  ✓ fleet on PATH
+  ✓ fleet skill installed
+```
+
+`fleet captain [name]` (alias of `fleet orchestrate`) appoints the control plane.
+`fleet` runs from any directory; each Captain gets its own isolated fleet session,
+and workers can be dispatched into any project.
+
+---
+
+## At a glance
 
 ```
 You ⇄ Claude Code (Fleet Captain)        ← your Max session
@@ -37,36 +105,10 @@ doing what.
 - **Node 20+** (uses `tsx`, no build step)
 - **Claude Code** logged into a Pro/Max/Team subscription (workers inherit it)
 
-## Install
+## Quickstart (CLI verbs)
 
-```bash
-git clone https://github.com/dfeirstein/fleet.git
-cd fleet
-./install.sh        # checks prereqs, npm install, links `fleet` + the skill
-fleet doctor        # confirm everything's green
-```
-
-`install.sh` checks for cmux/Node/git, installs deps (no build step — TS runs via
-`tsx`), symlinks `fleet` into `~/.local/bin`, and installs the Fleet skill
-into `~/.claude/skills`. If `~/.local/bin` isn't on your PATH, add it
-(`export PATH="$HOME/.local/bin:$PATH"`) and reopen your shell.
-
-- **`fleet setup`** — re-link after a `git pull` (idempotent).
-- **`fleet doctor`** — diagnose an install (cmux reachable? PATH? skill? daemon?).
-
-Then spin up your control plane:
-
-```bash
-fleet orchestrate Mario     # a badged "🎛 Mario" workspace you talk to
-```
-
-`fleet` runs from any directory; each Captain gets its own isolated fleet
-session, and workers can be dispatched into any project.
-
-## Quickstart
-
-Inside a Claude Code session running in a cmux workspace, just say what you want
-— the `fleet` skill teaches Claude the loop. Or use the CLI directly:
+Inside a Captain session you just say what you want — the `fleet` skill teaches
+Claude the loop. Or drive the CLI directly:
 
 ```bash
 fleet spawn --label api "build the REST API in src/api"   # autonomous, classifier-guarded
@@ -82,18 +124,22 @@ fleet kill --all                                          # tear everything down
 
 | Command | Purpose |
 | --- | --- |
+| `fleet captain [name]` | Appoint a Fleet Captain — a badged control-plane workspace you talk to (alias of `orchestrate`; `--resume` keeps her context) |
 | `fleet spawn <task>` | Launch a worker in its own workspace on a task |
 | `fleet grid <C>x<R> [task]` | Tile one workspace into a grid of worker panes (shared FS) |
 | `fleet status` | Snapshot the fleet (state per agent) |
 | `fleet watch` | Block until the fleet is idle; prints transitions + sidebar dashboard |
 | `fleet read <agent>` | Capture a worker's terminal screen |
 | `fleet send <agent> <text>` | Type into a worker (steer it) |
+| `fleet verify <agent> [--check <cmd>]` | Independent eval gate (judge ≠ generator) |
+| `fleet objective <goal> --done\|--verify <c>` | Loop a worker until a stop condition passes |
 | `fleet kill <agent\|--all>` | Stop a worker and clean up its pane/workspace |
 | `fleet resume` | Reconcile the registry against live cmux (prune dead, refresh refs) |
 | `fleet daemon <start\|stop\|status>` | Always-on heartbeat supervisor |
 | `fleet notify-orchestrator <msg> [--urgent]` | Push a message to the Captain |
 
-Agents are matched by id, id-prefix, or label.
+Agents are matched by id, id-prefix, or label. Run `fleet help` for the full
+surface (`bootstrap`, `currency`, `audit-docs`, `state`, `recall`, `capture`, …).
 
 ## Permission modes
 
