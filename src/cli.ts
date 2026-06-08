@@ -20,6 +20,7 @@ import { readOutcomes } from "./outcomes.js";
 import { digest, renderDigests } from "./commands/digest.js";
 import { recall } from "./commands/recall.js";
 import { profile } from "./commands/profile.js";
+import { renderState, setObjective, addDecision, addRisk, clearTransient } from "./commands/state.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -91,6 +92,8 @@ Commands:
                                              live sources into .claude-docs (TTL-cached)
   audit-docs [--cwd P] [--min N]             Score CLAUDE.md + flag stale currency
                                              (eval gate; exits non-zero on fail)
+  state [objective|decision|risk "<t>"]      The Captain's memory blocks (capped);
+        [clear]                              no args renders them; reload after /compact
   digest                                     Capture live workers' output to disk
                                              (.claude-docs/.../waves) + return digests
   recall <query...> [--cwd P] [--qmd]        Search the durable store (outcome log +
@@ -274,6 +277,28 @@ async function main(): Promise<void> {
       console.log(renderDigests(waveId, digests));
       const wrote = digests.filter((d) => d.wavePath).length;
       console.log(`captured ${wrote}/${digests.length} worker(s) to disk under .claude-docs/.../waves/${waveId}/`);
+      break;
+    }
+    case "state": {
+      const sub = positionals[0];
+      const rest = positionals.slice(1).join(" ").trim();
+      if (!sub) {
+        console.log(renderState());
+      } else if (sub === "objective" && rest) {
+        setObjective(rest);
+        console.log("objective set");
+      } else if (sub === "decision" && rest) {
+        addDecision(rest);
+        console.log("decision added");
+      } else if (sub === "risk" && rest) {
+        addRisk(rest);
+        console.log("risk added");
+      } else if (sub === "clear") {
+        clearTransient();
+        console.log("cleared decisions + risks (objective kept)");
+      } else {
+        return fail('state: `fleet state` | `state objective|decision|risk "<text>"` | `state clear`');
+      }
       break;
     }
     case "recall": {

@@ -188,6 +188,15 @@ window raw — only structured digests do.**
   transcript. The lookup runs outside your window and returns only the answer.
 - Prefer dropping resolved-wave detail to a one-line outcome over re-reading it.
 
+**Memory blocks & compaction.** Your durable manager state lives in capped,
+structured blocks — `fleet state` (active objective, live fleet roster, open
+decisions, risks) — NOT in your scrollback. Keep them current:
+`fleet state objective "…"`, `… decision "…"`, `… risk "…"`. When your window
+fills, **compact deliberately**: run `/compact`, then `fleet state` to reload the
+blocks — you drop the raw residue and keep the structured state, with no
+summarization drift (prune state, don't re-summarize prose). The roster is always
+live from the registry, so it's never stale.
+
 ## Make work visible in cmux
 The user lives in cmux — surface everything THERE, not just in chat:
 - Open PDFs, URLs, and rendered output in cmux browser surfaces; open files in
