@@ -21,6 +21,8 @@ import { digest, renderDigests } from "./commands/digest.js";
 import { recall } from "./commands/recall.js";
 import { profile } from "./commands/profile.js";
 import { renderState, setObjective, addDecision, addRisk, clearTransient } from "./commands/state.js";
+import { skillAudit } from "./commands/skill-audit.js";
+import { reflect } from "./commands/reflect.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -105,6 +107,10 @@ Commands:
   capture <name> --from <agent>              Promote a worker into a reusable skill
         [--verify <check>]                   gate it: pass→active, fail→quarantined
                                              (no check → provisional)
+  skill-audit [--apply]                      Decay GC for captured skills; --apply
+                                             quarantines stale-unused provisional ones
+  reflect [--session S]                      Scaffold a doctrine-delta proposal from
+                                             the outcome log (human-gated; no auto-edit)
   objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
         [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
                                              eval gate in the worker's worktree)
@@ -277,6 +283,27 @@ async function main(): Promise<void> {
       console.log(renderDigests(waveId, digests));
       const wrote = digests.filter((d) => d.wavePath).length;
       console.log(`captured ${wrote}/${digests.length} worker(s) to disk under .claude-docs/.../waves/${waveId}/`);
+      break;
+    }
+    case "skill-audit": {
+      const { rows, changed } = skillAudit({ apply: flags.apply === true });
+      if (rows.length === 0) {
+        console.log("no captured skills to audit");
+      } else {
+        for (const r of rows) {
+          const age = r.ageDays === null ? "?" : `${r.ageDays}d`;
+          console.log(`${r.recommendation.toUpperCase().padEnd(7)} ${r.name.padEnd(20)} [${r.status}, ${age}, ${r.reuseCount} reuse]  ${r.note}`);
+        }
+        if (changed.length) console.log(`\nquarantined ${changed.length}: ${changed.join(", ")}`);
+        else if (flags.apply !== true) console.log(`\n(report only — re-run with --apply to quarantine 'retire' provisional skills)`);
+      }
+      break;
+    }
+    case "reflect": {
+      const { path, spawns, fails } = reflect(str(flags.session));
+      console.log(`scaffolded doctrine-delta proposal from ${spawns} delegation(s), ${fails} verify failure(s):`);
+      console.log(`  ${path}`);
+      console.log(`fill it in and adopt via PR review — it changes no doctrine. See docs/doctrine-deltas/README.md`);
       break;
     }
     case "state": {

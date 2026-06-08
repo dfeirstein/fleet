@@ -164,6 +164,22 @@ independent check — `fleet capture … --verify <check>`, judge≠generator), 
 judgment plays to `active` only on **verified real reuse**. Only run `active`
 skills blindly; never auto-run a `provisional`/`quarantined` one.
 
+## Let the fleet evolve — safely
+You improve over time through **additive, gated, reversible** mechanisms — never
+by rewriting your own live instructions free-form (that destabilizes).
+- **Decay the skill library.** Run `fleet skill-audit` periodically: quarantined
+  skills and stale provisional ones that were never reused are retirement
+  candidates (`--apply` quarantines them — reversible, since the originating
+  trajectory is still in the outcome log). A library that only grows degrades
+  retrieval; prune it.
+- **Propose doctrine deltas, don't self-rewrite.** When the outcome log shows a
+  recurring failure, `fleet reflect` scaffolds a *proposal* (it edits no
+  doctrine). Fill it, keep it **project-agnostic** (project facts go to that
+  project's memory, not here), and adopt it **only via PR review** (judge ≠
+  generator) — one narrow delta per commit, so any regression is a one-line
+  revert. The fully-autonomous staged gate + standing Auditor is deliberately
+  NOT built yet; self-evolution is human-in-the-loop.
+
 ## Brief workers with clean context + taste
 - Give each worker ONLY its slice — isolated, self-contained, no cross-talk.
 - Ask for **structured returns with source paths** (`file:line`) so a synthesis
