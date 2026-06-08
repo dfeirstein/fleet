@@ -113,13 +113,18 @@ delegation → outcome log (Move 1)  →  gated capture (Move 3)  →  skill dec
 
 | # | Move | Effort | Status |
 |---|---|---|---|
-| **1** | **Append-only delegation-outcome log** (`~/.fleet/<session>.outcomes.jsonl`) — prerequisite for everything | low | **in progress** |
-| 2 | Wave-complete **digest firewall** (raw → wave file; digest → Captain) | medium | planned |
-| 3 | `fleet capture` → **gated pipeline** (held-out / canary) + record to log | medium | planned |
-| 4 | Captain **reasoning-budget + delegate-now** doctrine (mechanical anti-drift) | low | planned |
-| 5 | `fleet recall` (grep core + opt-in QMD) + per-project profile | medium/high | planned |
-| 6 | **memory blocks** + configurable compaction (pointer-not-resummarize) | medium | planned |
-| 7 | **skill decay** audit + **doctrine-delta** staged gate + Auditor | high | later |
+| **1** | **Append-only delegation-outcome log** (`~/.fleet/<session>.outcomes.jsonl`) — prerequisite for everything | low | ✅ built (`fleet outcomes`) |
+| 2 | Wave-complete **digest firewall** (raw → wave file; digest → Captain) | medium | ✅ built (`fleet digest`) |
+| 3 | `fleet capture` → **gated pipeline** (provisional/active/quarantined) | medium | ✅ built (`--verify`) |
+| 4 | Captain **reasoning-budget + delegate-now** doctrine (mechanical anti-drift) | low | ✅ built (doctrine) |
+| 5 | `fleet recall` (grep core + opt-in QMD) + per-project profile | medium/high | ✅ built (`fleet recall`/`profile`) |
+| 6 | **memory blocks** + compaction protocol (pointer-not-resummarize) | medium | ✅ built (`fleet state`); auto-trigger deferred |
+| 7 | **skill decay** audit + **doctrine-delta** scaffold | high | ✅ built (`fleet skill-audit`/`reflect`); autonomous gate+Auditor deferred |
+
+_Deferred within 6 & 7 (need window telemetry + an agreed metric + a re-runnable
+held-out suite): automatic occupancy-triggered compaction, and the fully-
+autonomous doctrine-delta staged gate + standing Auditor. Self-evolution stays
+human-in-the-loop for now._
 
 ## Guardrails
 
