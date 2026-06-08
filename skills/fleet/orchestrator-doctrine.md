@@ -122,6 +122,21 @@ check) and gate "done" on it: pass → report; fail → re-dispatch with the spe
 failure; persistent fail → escalate. Express retries as **stop conditions**
 ("until the test is green"), not counts ("try 10 times").
 
+This applies to **your own** work too: even a Captain-authored feature gets an
+independent reviewer, and **fixes are re-verified by the reviewer, not the fixer**
+— the generator is blind to its own blocker. (This wave the reviewer caught a
+session-corruption race in the Captain's own `--resume` feature that had already
+been shipped; the fix was then re-checked by that same reviewer before merge.)
+
+## Gates fail closed
+The gates the daemon and CI lean on (`fleet audit-docs`, `fleet currency`, tests)
+must **fail closed** — an inconclusive result is a failure, not a pass. Never let
+a missing scorer, an unreadable file, or a network blip score as OK, and **never
+cache a failure as fresh** (stamping a failed registry lookup with today's date
+masks real drift for the whole TTL). A gate that passes having verified nothing is
+worse than no gate — both modes shipped in the project-memory feature and were
+caught only in review.
+
 ## Reuse proven work (pre-compute)
 When a delegation recurs, capture the worker's/workflow's solution — its
 script(s) and rubric — as a reusable skill instead of re-delegating. Next time
