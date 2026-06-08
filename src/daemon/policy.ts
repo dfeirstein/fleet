@@ -34,8 +34,10 @@ export function waveCompleteMessage(
   const auditHint = projects.length === 1 ? ` --cwd ${projects[0]}` : "";
   return (
     `Wave complete — ${summary}. ` +
-    `Evolve project memory: distill what the workers learned (new gotchas, decisions, version pins) ` +
-    `into CLAUDE.md / .claude-docs, then gate with \`fleet audit-docs${auditHint}\` ` +
+    `Collect results with \`fleet digest\` (writes each worker's raw output to disk and returns only compact ` +
+    `digests — don't \`fleet read\` transcripts into your window). ` +
+    `Then evolve project memory: distill what the workers learned (new gotchas, decisions, version pins) ` +
+    `into CLAUDE.md / .claude-docs, and gate with \`fleet audit-docs${auditHint}\` ` +
     `(and \`fleet currency\` if versions look stale) — spawn a scribe to refresh if it fails. ` +
     `Then take the next step if one's worth it (verify the output, review the diff, start the next wave); ` +
     `otherwise a one-line ack is fine.`

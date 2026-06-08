@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { mkdirSync, appendFileSync, readFileSync, existsSync } from "node:fs";
 import { sessionId } from "./registry.js";
 
-export type OutcomeEvent = "spawn" | "verify" | "kill";
+export type OutcomeEvent = "spawn" | "verify" | "kill" | "complete";
 
 export interface OutcomeRecord {
   ts: string; // ISO timestamp
@@ -32,8 +32,10 @@ export interface OutcomeRecord {
   /** verify: the independent eval verdict + the check that produced it. */
   verdict?: "pass" | "fail";
   check?: string;
-  /** kill: the worker's final observed status. */
+  /** kill/complete: the worker's final observed status. */
   status?: string;
+  /** complete: where the wave digest wrote the worker's raw output (recall handle). */
+  wavePath?: string;
   /** Reserved: distilled lesson from a wave digest (Move 2 enriches this). */
   lessons?: string;
 }

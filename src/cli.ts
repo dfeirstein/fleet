@@ -17,6 +17,7 @@ import { bootstrap } from "./commands/bootstrap.js";
 import { currency } from "./commands/currency.js";
 import { auditDocs } from "./commands/audit-docs.js";
 import { readOutcomes } from "./outcomes.js";
+import { digest, renderDigests } from "./commands/digest.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -88,6 +89,8 @@ Commands:
                                              live sources into .claude-docs (TTL-cached)
   audit-docs [--cwd P] [--min N]             Score CLAUDE.md + flag stale currency
                                              (eval gate; exits non-zero on fail)
+  digest                                     Capture live workers' output to disk
+                                             (.claude-docs/.../waves) + return digests
   outcomes [--tail N] [--json]               Show the delegation-outcome log
                                              (the trajectory store; spawn/verify/kill)
   capture <name> --from <agent>              Promote a worker into a reusable skill
@@ -256,6 +259,13 @@ async function main(): Promise<void> {
       }
       console.log(`\naudit-docs: ${res.pass ? "PASS" : "FAIL"}`);
       if (!res.pass) process.exitCode = 1;
+      break;
+    }
+    case "digest": {
+      const { waveId, digests } = digest();
+      console.log(renderDigests(waveId, digests));
+      const wrote = digests.filter((d) => d.wavePath).length;
+      console.log(`captured ${wrote}/${digests.length} worker(s) to disk under .claude-docs/.../waves/${waveId}/`);
       break;
     }
     case "outcomes": {

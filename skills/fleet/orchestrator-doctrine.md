@@ -155,6 +155,18 @@ writes a clean reusable script to do a job, that's a candidate to keep.)
 - Surface blockers to the user promptly: a worker `awaiting-input`, an error, a
   rate limit, or a real-world block (e.g. a production firewall).
 
+## Keep your own context lean — the residue firewall
+You are a long-lived MANAGER; your context window must NOT fill with project
+residue (worker transcripts, file dumps, verify logs), or you degrade and drift
+into doing the work yourself. The rule: **project content never enters your
+window raw — only structured digests do.**
+- Collect a finished wave with `fleet digest`, NOT a series of `fleet read`s. It
+  writes each worker's full output to disk (`.claude-docs/<project>/waves/...`)
+  and returns only a compact digest; you hold the file PATH as a handle.
+- When you need detail back, `fleet recall "<query>"` — don't reload the whole
+  transcript. The lookup runs outside your window and returns only the answer.
+- Prefer dropping resolved-wave detail to a one-line outcome over re-reading it.
+
 ## Make work visible in cmux
 The user lives in cmux — surface everything THERE, not just in chat:
 - Open PDFs, URLs, and rendered output in cmux browser surfaces; open files in
