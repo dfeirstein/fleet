@@ -48,7 +48,22 @@ and give the worker a SHORT task: *"Read &lt;path&gt; and execute it exactly."*
 Always `waitForTerminal()` (polls `read-screen` until non-empty) before sending
 anything. The PTY can report "live" a beat before the shell prompt or launched
 command has rendered — hence the non-empty-content check, not just a "no error"
-check.
+check. The same applies to a **split pane** (`new-split`): its PTY also boots
+lazily, so `spawn` splits with `--focus true` (bringing the new pane up) and
+`waitForTerminal()` on the new surface before launching anything in it.
+
+## Same-project workers group into one workspace (split panes, cap 4)
+
+`spawn` keeps workers for the **same project** (git repo root of `--cwd`, else the
+dir itself) in **one** cmux workspace, added as split panes, up to
+`MAX_PANES_PER_WORKSPACE` (4) live panes; the next worker for that project spills
+into a fresh workspace. Split direction alternates right-then-down like `grid.ts`.
+Grouped workers register with `ownsWorkspace: false` against the **shared**
+`workspaceId` and their **own** new `surfaceId` — so `kill` closes just that pane
+while siblings survive, and closes the whole workspace only for the last one.
+`--standalone` forces a fresh workspace and skips grouping. A `new-split` pane is
+a **bare shell** (no `--command`), so the launch line is typed in (with a `cd`
+into the worker's cwd) rather than passed to cmux.
 
 ## Launch programs via `--command`, don't type them in
 

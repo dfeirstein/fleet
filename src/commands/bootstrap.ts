@@ -82,6 +82,7 @@ export function bootstrap(opts: BootstrapOptions): { agent?: Agent; skipped?: st
     worktree: false,
     branch: undefined,
     command: undefined,
+    standalone: true, // the scribe gets its own watchable workspace
   });
   return { agent };
 }
