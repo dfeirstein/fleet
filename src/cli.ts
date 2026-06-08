@@ -94,6 +94,8 @@ Commands:
   outcomes [--tail N] [--json]               Show the delegation-outcome log
                                              (the trajectory store; spawn/verify/kill)
   capture <name> --from <agent>              Promote a worker into a reusable skill
+        [--verify <check>]                   gate it: pass→active, fail→quarantined
+                                             (no check → provisional)
   objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
         [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
                                              eval gate in the worker's worktree)
@@ -293,8 +295,11 @@ async function main(): Promise<void> {
       const name = positionals[0];
       const from = str(flags.from);
       if (!name || !from) return fail('capture requires <name> --from <agent>');
-      const path = capture(name, from);
-      console.log(`captured → ${path}`);
+      const { path, status, verifyOutput } = capture(name, from, str(flags.verify));
+      if (verifyOutput) console.log(verifyOutput);
+      console.log(`captured → ${path}  [status: ${status}]`);
+      if (status === "provisional") console.log("  gate it with --verify <check>, or promote on verified real reuse, before trusting it.");
+      if (status === "quarantined") process.exitCode = 1;
       break;
     }
     case "objective": {

@@ -137,11 +137,18 @@ masks real drift for the whole TTL). A gate that passes having verified nothing 
 worse than no gate — both modes shipped in the project-memory feature and were
 caught only in review.
 
-## Reuse proven work (pre-compute)
+## Reuse proven work (pre-compute) — but gate the capture
 When a delegation recurs, capture the worker's/workflow's solution — its
 script(s) and rubric — as a reusable skill instead of re-delegating. Next time
 run the cheap, deterministic script; don't pay for inference again. (When a worker
 writes a clean reusable script to do a job, that's a candidate to keep.)
+
+A captured skill is NOT trusted on a single success — that's library drift. It
+carries a `status`: **provisional** (just captured), **active** (passed an
+independent check — `fleet capture … --verify <check>`, judge≠generator), or
+**quarantined** (failed). Gate deterministic captures with `--verify` now; promote
+judgment plays to `active` only on **verified real reuse**. Only run `active`
+skills blindly; never auto-run a `provisional`/`quarantined` one.
 
 ## Brief workers with clean context + taste
 - Give each worker ONLY its slice — isolated, self-contained, no cross-talk.
