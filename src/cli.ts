@@ -13,6 +13,9 @@ import { orchestrate } from "./commands/orchestrate.js";
 import { setup } from "./commands/setup.js";
 import { doctor } from "./commands/doctor.js";
 import { verify } from "./commands/verify.js";
+import { bootstrap } from "./commands/bootstrap.js";
+import { currency } from "./commands/currency.js";
+import { auditDocs } from "./commands/audit-docs.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -78,6 +81,12 @@ Commands:
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
   verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator)
+  bootstrap [--cwd P] [--force]              Give a project strong durable memory
+                                             (CLAUDE.md + .claude-docs via a scribe)
+  currency [--cwd P] [--force]               Resolve latest versions/model-IDs from
+                                             live sources into .claude-docs (TTL-cached)
+  audit-docs [--cwd P] [--min N]             Score CLAUDE.md + flag stale currency
+                                             (eval gate; exits non-zero on fail)
   capture <name> --from <agent>              Promote a worker into a reusable skill
   objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
         [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
@@ -90,8 +99,10 @@ Commands:
   kill <agent | --all>                       Stop a worker and clean up
   setup                                      Link fleet onto PATH + install skill
   doctor                                     Diagnose the install (cmux/PATH/…)
-  orchestrate|captain [name]                 Appoint a Fleet Captain — a badged
+  orchestrate|captain [name] [--resume]      Appoint a Fleet Captain — a badged
                                              control-plane workspace you talk to
+                                             (--resume re-appoints an existing
+                                             Captain, keeping her conversation)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
                                              stuck/zombie detection, escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
@@ -99,7 +110,7 @@ Commands:
 
 Agents are matched by id, id-prefix, or label.`;
 
-function main(): void {
+async function main(): Promise<void> {
   const [, , cmd, ...rest] = process.argv;
   const { flags, positionals } = parseArgs(rest);
 
@@ -178,7 +189,7 @@ function main(): void {
     case "orchestrate":
     case "captain": {
       const name = positionals.join(" ").trim() || "Captain";
-      const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true });
+      const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true, resume: flags.resume === true });
       console.log(`⚓ Fleet Captain "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
       console.log(`Switch to the "⚓ ${rec.name}" workspace in cmux and talk to the Captain.`);
       console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
@@ -191,6 +202,57 @@ function main(): void {
       if (output) console.log(output);
       console.log(pass ? "PASS" : "FAIL");
       if (!pass) process.exitCode = 1;
+      break;
+    }
+    case "bootstrap": {
+      const { agent, skipped } = bootstrap({
+        cwd: str(flags.cwd) ?? process.cwd(),
+        model: str(flags.model),
+        force: flags.force === true,
+      });
+      if (skipped) {
+        console.log(skipped);
+      } else if (agent) {
+        console.log(`scribe spawned ${agent.agentId} (${agent.label}) in ${agent.cwd}`);
+        console.log(`  workspace: ${agent.workspace}  surface: ${agent.surface}`);
+        console.log(`watch it with \`fleet watch\`; it will write CLAUDE.md + .claude-docs/ and report back.`);
+      }
+      break;
+    }
+    case "currency": {
+      const res = await currency({
+        cwd: str(flags.cwd) ?? process.cwd(),
+        force: flags.force === true,
+      });
+      const pkgs = res.entries.filter((e) => e.kind !== "model").length;
+      const models = res.entries.filter((e) => e.kind === "model").length;
+      console.log(`currency: ${pkgs} package(s), ${models} model ID(s) — ${res.refetched} resolved live this run`);
+      if (res.drift.length) {
+        console.log(`drift (pinned → latest):`);
+        for (const e of res.drift) console.log(`  ${e.name}: ${e.pinned} → ${e.latest}`);
+      } else {
+        console.log(`no version drift detected`);
+      }
+      console.log(`wrote ${res.versionsPath}`);
+      break;
+    }
+    case "audit-docs": {
+      const res = auditDocs({
+        cwd: str(flags.cwd) ?? process.cwd(),
+        minScore: str(flags.min) ? Number(str(flags.min)) : undefined,
+      });
+      if (res.report) console.log(res.report.trimEnd());
+      if (res.currencyChecked) {
+        console.log(
+          res.staleCurrency.length
+            ? `\ncurrency: ${res.staleCurrency.length} fact(s) stale → run \`fleet currency\`: ${res.staleCurrency.slice(0, 8).join(", ")}${res.staleCurrency.length > 8 ? "…" : ""}`
+            : `\ncurrency: all facts fresh`,
+        );
+      } else {
+        console.log(`\ncurrency: no cache — run \`fleet currency\` to resolve versions/model-IDs`);
+      }
+      console.log(`\naudit-docs: ${res.pass ? "PASS" : "FAIL"}`);
+      if (!res.pass) process.exitCode = 1;
       break;
     }
     case "capture": {
@@ -283,13 +345,11 @@ function fail(msg: string): void {
   process.exitCode = 1;
 }
 
-try {
-  main();
-} catch (err) {
+main().catch((err) => {
   if (err instanceof CmuxError) {
     console.error(`fleet: ${err.message}`);
   } else {
     console.error(`fleet: ${(err as Error).message}`);
   }
   process.exitCode = 1;
-}
+});
