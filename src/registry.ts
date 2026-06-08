@@ -49,7 +49,7 @@ interface RegistryFile {
  *      relying on env-var propagation through the launch;
  *   3. otherwise derive a stable id from the project root (git toplevel / cwd).
  */
-function sessionId(): string {
+export function sessionId(): string {
   if (process.env.FLEET_SESSION) return process.env.FLEET_SESSION;
 
   const orch = readOrchestratorRecord();

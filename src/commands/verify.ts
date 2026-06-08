@@ -20,6 +20,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveAgent } from "../registry.js";
+import { appendOutcome } from "../outcomes.js";
 
 /** Pick the default check for a directory: `npm test` if defined, else a tsc typecheck. */
 function defaultCheck(dir: string): string {
@@ -51,6 +52,7 @@ export function verify(idOrLabel: string, check?: string): { pass: boolean; outp
   const dir = agent.worktree?.path ?? agent.cwd;
   const cmd = check ?? defaultCheck(dir);
 
+  let result: { pass: boolean; output: string };
   try {
     const out = execSync(cmd, {
       cwd: dir,
@@ -58,10 +60,22 @@ export function verify(idOrLabel: string, check?: string): { pass: boolean; outp
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 16 * 1024 * 1024,
     });
-    return { pass: true, output: tail(out) };
+    result = { pass: true, output: tail(out) };
   } catch (err) {
     const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
     const combined = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
-    return { pass: false, output: tail(combined || e.message || "check failed") };
+    result = { pass: false, output: tail(combined || e.message || "check failed") };
   }
+
+  // Trajectory store: record the independent eval verdict (Move 1). Best-effort.
+  appendOutcome({
+    event: "verify",
+    agentId: agent.agentId,
+    label: agent.label,
+    verdict: result.pass ? "pass" : "fail",
+    check: cmd,
+    cwd: dir,
+  });
+
+  return result;
 }

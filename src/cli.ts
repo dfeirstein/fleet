@@ -16,6 +16,7 @@ import { verify } from "./commands/verify.js";
 import { bootstrap } from "./commands/bootstrap.js";
 import { currency } from "./commands/currency.js";
 import { auditDocs } from "./commands/audit-docs.js";
+import { readOutcomes } from "./outcomes.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -87,6 +88,8 @@ Commands:
                                              live sources into .claude-docs (TTL-cached)
   audit-docs [--cwd P] [--min N]             Score CLAUDE.md + flag stale currency
                                              (eval gate; exits non-zero on fail)
+  outcomes [--tail N] [--json]               Show the delegation-outcome log
+                                             (the trajectory store; spawn/verify/kill)
   capture <name> --from <agent>              Promote a worker into a reusable skill
   objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
         [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
@@ -253,6 +256,27 @@ async function main(): Promise<void> {
       }
       console.log(`\naudit-docs: ${res.pass ? "PASS" : "FAIL"}`);
       if (!res.pass) process.exitCode = 1;
+      break;
+    }
+    case "outcomes": {
+      const all = readOutcomes(str(flags.session));
+      const n = str(flags.tail) ? Number(str(flags.tail)) : 20;
+      const rows = all.slice(-n);
+      if (flags.json === true) {
+        console.log(JSON.stringify(rows, null, 2));
+      } else if (rows.length === 0) {
+        console.log("no outcomes logged yet (spawn/verify/kill a worker to populate the log)");
+      } else {
+        for (const r of rows) {
+          const when = r.ts.slice(5, 16).replace("T", " ");
+          const detail =
+            r.event === "verify" ? `${r.verdict ?? "?"} (${r.check ?? ""})`
+            : r.event === "kill" ? `status=${r.status ?? "?"}`
+            : (r.objective ?? "").replace(/\s+/g, " ").slice(0, 60);
+          console.log(`${when}  ${r.event.padEnd(6)}  ${r.label.padEnd(16)}  ${detail}`);
+        }
+        console.log(`\n${all.length} record(s) total`);
+      }
       break;
     }
     case "capture": {
