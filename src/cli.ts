@@ -16,6 +16,13 @@ import { verify } from "./commands/verify.js";
 import { bootstrap } from "./commands/bootstrap.js";
 import { currency } from "./commands/currency.js";
 import { auditDocs } from "./commands/audit-docs.js";
+import { readOutcomes } from "./outcomes.js";
+import { digest, renderDigests } from "./commands/digest.js";
+import { recall } from "./commands/recall.js";
+import { profile } from "./commands/profile.js";
+import { renderState, setObjective, addDecision, addRisk, clearTransient } from "./commands/state.js";
+import { skillAudit } from "./commands/skill-audit.js";
+import { reflect } from "./commands/reflect.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
@@ -87,7 +94,23 @@ Commands:
                                              live sources into .claude-docs (TTL-cached)
   audit-docs [--cwd P] [--min N]             Score CLAUDE.md + flag stale currency
                                              (eval gate; exits non-zero on fail)
+  state [objective|decision|risk "<t>"]      The Captain's memory blocks (capped);
+        [clear]                              no args renders them; reload after /compact
+  digest                                     Capture live workers' output to disk
+                                             (.claude-docs/.../waves) + return digests
+  recall <query...> [--cwd P] [--qmd]        Search the durable store (outcome log +
+                                             .claude-docs) via grep; --qmd uses QMD
+  profile [--cwd P]                          Write a per-project profile (.claude-docs)
+                                             from the outcome log — load it on re-entry
+  outcomes [--tail N] [--json]               Show the delegation-outcome log
+                                             (the trajectory store; spawn/verify/kill)
   capture <name> --from <agent>              Promote a worker into a reusable skill
+        [--verify <check>]                   gate it: pass→active, fail→quarantined
+                                             (no check → provisional)
+  skill-audit [--apply]                      Decay GC for captured skills; --apply
+                                             quarantines stale-unused provisional ones
+  reflect [--session S]                      Scaffold a doctrine-delta proposal from
+                                             the outcome log (human-gated; no auto-edit)
   objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
         [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
                                              eval gate in the worker's worktree)
@@ -255,12 +278,105 @@ async function main(): Promise<void> {
       if (!res.pass) process.exitCode = 1;
       break;
     }
+    case "digest": {
+      const { waveId, digests } = digest();
+      console.log(renderDigests(waveId, digests));
+      const wrote = digests.filter((d) => d.wavePath).length;
+      console.log(`captured ${wrote}/${digests.length} worker(s) to disk under .claude-docs/.../waves/${waveId}/`);
+      break;
+    }
+    case "skill-audit": {
+      const { rows, changed } = skillAudit({ apply: flags.apply === true });
+      if (rows.length === 0) {
+        console.log("no captured skills to audit");
+      } else {
+        for (const r of rows) {
+          const age = r.ageDays === null ? "?" : `${r.ageDays}d`;
+          console.log(`${r.recommendation.toUpperCase().padEnd(7)} ${r.name.padEnd(20)} [${r.status}, ${age}, ${r.reuseCount} reuse]  ${r.note}`);
+        }
+        if (changed.length) console.log(`\nquarantined ${changed.length}: ${changed.join(", ")}`);
+        else if (flags.apply !== true) console.log(`\n(report only — re-run with --apply to quarantine 'retire' provisional skills)`);
+      }
+      break;
+    }
+    case "reflect": {
+      const { path, spawns, fails } = reflect(str(flags.session));
+      console.log(`scaffolded doctrine-delta proposal from ${spawns} delegation(s), ${fails} verify failure(s):`);
+      console.log(`  ${path}`);
+      console.log(`fill it in and adopt via PR review — it changes no doctrine. See docs/doctrine-deltas/README.md`);
+      break;
+    }
+    case "state": {
+      const sub = positionals[0];
+      const rest = positionals.slice(1).join(" ").trim();
+      if (!sub) {
+        console.log(renderState());
+      } else if (sub === "objective" && rest) {
+        setObjective(rest);
+        console.log("objective set");
+      } else if (sub === "decision" && rest) {
+        addDecision(rest);
+        console.log("decision added");
+      } else if (sub === "risk" && rest) {
+        addRisk(rest);
+        console.log("risk added");
+      } else if (sub === "clear") {
+        clearTransient();
+        console.log("cleared decisions + risks (objective kept)");
+      } else {
+        return fail('state: `fleet state` | `state objective|decision|risk "<text>"` | `state clear`');
+      }
+      break;
+    }
+    case "recall": {
+      const query = positionals.join(" ").trim();
+      if (!query) return fail('recall requires a "<query>"');
+      const res = recall(query, { cwd: str(flags.cwd) ?? process.cwd(), qmd: flags.qmd === true });
+      if (res.source === "none") {
+        console.log("nothing to recall yet (no ~/.fleet or .claude-docs store)");
+      } else if (res.hits.length === 0) {
+        console.log(`no matches for "${query}" (via ${res.source})`);
+      } else {
+        console.log(`${res.hits.length} hit(s) for "${query}" via ${res.source}:`);
+        for (const h of res.hits) console.log(`  ${h}`);
+      }
+      break;
+    }
+    case "profile": {
+      const path = profile({ cwd: str(flags.cwd) ?? process.cwd() });
+      console.log(`wrote ${path}`);
+      break;
+    }
+    case "outcomes": {
+      const all = readOutcomes(str(flags.session));
+      const n = str(flags.tail) ? Number(str(flags.tail)) : 20;
+      const rows = all.slice(-n);
+      if (flags.json === true) {
+        console.log(JSON.stringify(rows, null, 2));
+      } else if (rows.length === 0) {
+        console.log("no outcomes logged yet (spawn/verify/kill a worker to populate the log)");
+      } else {
+        for (const r of rows) {
+          const when = r.ts.slice(5, 16).replace("T", " ");
+          const detail =
+            r.event === "verify" ? `${r.verdict ?? "?"} (${r.check ?? ""})`
+            : r.event === "kill" ? `status=${r.status ?? "?"}`
+            : (r.objective ?? "").replace(/\s+/g, " ").slice(0, 60);
+          console.log(`${when}  ${r.event.padEnd(6)}  ${r.label.padEnd(16)}  ${detail}`);
+        }
+        console.log(`\n${all.length} record(s) total`);
+      }
+      break;
+    }
     case "capture": {
       const name = positionals[0];
       const from = str(flags.from);
       if (!name || !from) return fail('capture requires <name> --from <agent>');
-      const path = capture(name, from);
-      console.log(`captured → ${path}`);
+      const { path, status, verifyOutput } = capture(name, from, str(flags.verify));
+      if (verifyOutput) console.log(verifyOutput);
+      console.log(`captured → ${path}  [status: ${status}]`);
+      if (status === "provisional") console.log("  gate it with --verify <check>, or promote on verified real reuse, before trusting it.");
+      if (status === "quarantined") process.exitCode = 1;
       break;
     }
     case "objective": {

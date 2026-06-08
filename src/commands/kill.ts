@@ -2,6 +2,7 @@
 import { sendKey, closeWorkspace, closeSurface, workspaceExists } from "../cmux.js";
 import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
 import { hasChanges, commitAll, removeWorktree } from "../git.js";
+import { appendOutcome } from "../outcomes.js";
 
 /** Branches left behind by killed worktree workers, for the caller to report. */
 export const reviewBranches: string[] = [];
@@ -49,6 +50,15 @@ function killOne(agent: Agent): void {
     removeWorktree(repo, path);
     reviewBranches.push(branch);
   }
+  // Trajectory store: record final disposition (Move 1). Best-effort.
+  appendOutcome({
+    event: "kill",
+    agentId: agent.agentId,
+    label: agent.label,
+    status: agent.status,
+    cwd: agent.cwd,
+    worktreeBranch: agent.worktree?.branch,
+  });
   remove(agent.agentId);
 }
 

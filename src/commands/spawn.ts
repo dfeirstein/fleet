@@ -13,6 +13,7 @@ import {
   type Target,
 } from "../cmux.js";
 import { upsert, remove, type Agent } from "../registry.js";
+import { appendOutcome } from "../outcomes.js";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { repoRoot, currentBranch, addWorktree } from "../git.js";
@@ -195,6 +196,18 @@ export function spawn(opts: SpawnOptions): Agent {
       : opts.task;
     if (waitForClaudeReady(t)) submitToClaude(t, task);
   }
+
+  // Trajectory store: record the delegation (Move 1). Best-effort.
+  appendOutcome({
+    event: "spawn",
+    agentId: agent.agentId,
+    label: agent.label,
+    objective: opts.task,
+    cwd: workerCwd,
+    worktreeBranch: worktree?.branch,
+    model: opts.model,
+    mode: opts.mode,
+  });
 
   return agent;
 }
