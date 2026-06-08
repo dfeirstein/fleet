@@ -67,12 +67,15 @@ Usage: fleet <command> [options]
 
 Commands:
   spawn <task...>        Launch a Claude Code worker on a task
+                         Same-project workers share one workspace as split panes
+                         (cap 4); the next spills to a fresh workspace.
     --cwd <path>           Working directory (default: cwd)
     --label <name>         Workspace/agent label
     --model <model>        Model for the worker (default: ${SPAWN_DEFAULTS.model})
     --gated                Prompt on every risky action (forces default mode)
     --yolo                 No safety checks (--dangerously-skip-permissions)
     --worktree [--branch B] Isolate in a git worktree on its own branch
+    --standalone           Force a fresh workspace; skip same-project grouping
     --command <cmd>        Override launched program (testing / non-claude)
     --no-launch            Open a bare shell; don't launch anything
     --no-autostart         Launch Claude but don't auto-send the task prompt
@@ -151,6 +154,7 @@ async function main(): Promise<void> {
         mode: flags.yolo === true ? "yolo" : flags.gated === true ? "gated" : SPAWN_DEFAULTS.mode,
         worktree: flags.worktree === true,
         branch: str(flags.branch),
+        standalone: flags.standalone === true,
       };
       const agent = spawn(opts);
       console.log(`spawned ${agent.agentId} (${agent.label})`);

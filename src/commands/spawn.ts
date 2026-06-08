@@ -5,14 +5,19 @@ import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
   newWorkspace,
-  waitForTerminal,
+  newSplit,
+  listGridCells,
   closeWorkspace,
+  closeSurface,
+  workspaceExists,
+  waitForTerminal,
   readScreen,
   submit,
+  sendKey,
   submitToClaude,
   type Target,
 } from "../cmux.js";
-import { upsert, remove, type Agent } from "../registry.js";
+import { upsert, remove, listAgents, type Agent } from "../registry.js";
 import { appendOutcome } from "../outcomes.js";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
@@ -35,6 +40,7 @@ export interface SpawnOptions {
   autostart: boolean; // false = launch the program but don't pass the task prompt
   worktree: boolean; // true = isolate the worker in a git worktree on its own branch
   branch?: string; // override the worktree branch name
+  standalone: boolean; // true = force a fresh workspace, skip same-project grouping
 }
 
 export const SPAWN_DEFAULTS = {
@@ -43,7 +49,48 @@ export const SPAWN_DEFAULTS = {
   launch: true,
   autostart: true,
   worktree: false,
+  standalone: false,
 };
+
+// Same-project workers share one cmux workspace as split panes, up to this many
+// live panes; the next worker for that project spills into a fresh workspace.
+const MAX_PANES_PER_WORKSPACE = 4;
+
+/** The project a directory belongs to: its git repo root, or the dir itself. */
+function projectKey(cwd: string): string {
+  return repoRoot(cwd) ?? cwd;
+}
+
+/** The project an existing worker belongs to (worktree workers map to their origin repo). */
+function agentProject(a: Agent): string {
+  return a.worktree?.repo ?? repoRoot(a.cwd) ?? a.cwd;
+}
+
+/**
+ * Find a live, same-project workspace that still exists and holds fewer than
+ * MAX_PANES_PER_WORKSPACE workers — the agents sharing it, so the caller can
+ * split a new pane in. Returns undefined when a fresh workspace is needed.
+ */
+function findGroupWorkspace(key: string): Agent[] | undefined {
+  const live = listAgents().filter((a) => a.status !== "dead" && agentProject(a) === key);
+  const groups = new Map<string, Agent[]>();
+  for (const a of live) {
+    const wsId = a.workspaceId ?? a.workspace;
+    const g = groups.get(wsId);
+    if (g) g.push(a);
+    else groups.set(wsId, [a]);
+  }
+  for (const agents of groups.values()) {
+    if (agents.length >= MAX_PANES_PER_WORKSPACE) continue;
+    // A --standalone worker owns its workspace exclusively (kill closes the whole
+    // workspace), so it's never a join target — splitting siblings into it would
+    // let an owner-kill take them down. grid/grouped members are ownerless.
+    if (agents.some((a) => a.ownsWorkspace)) continue;
+    const rep = agents[0]!;
+    if (workspaceExists(rep.workspaceId ?? rep.workspace)) return agents;
+  }
+  return undefined;
+}
 
 function branchSlug(label: string): string {
   return label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "worker";
@@ -136,52 +183,121 @@ export function spawn(opts: SpawnOptions): Agent {
     }
   }
 
-  // Launch a SHORT claude command (no task) so it reliably runs via cmux
-  // --command. A long task baked into the launch line gets mangled by the
-  // shell's bracketed-paste on boot; we send the task after the TUI is ready.
+  // Launch a SHORT claude command (no task) so it reliably runs via cmux. A long
+  // task baked into the launch line gets mangled by the shell's bracketed-paste
+  // on boot; we send the task after the TUI is ready.
   const command = opts.launch
     ? (opts.command ?? buildClaudeCommand(opts.model, "", false, opts.mode))
     : undefined;
 
-  // Create the workspace and let cmux launch the program in its terminal.
-  const ws = newWorkspace({ name: label, cwd: workerCwd, command, focus: false });
+  // Placement: group with same-project workers as split panes in one workspace
+  // (up to MAX_PANES_PER_WORKSPACE), else open a fresh workspace. --standalone
+  // forces a fresh workspace and skips grouping.
+  const group = opts.standalone ? undefined : findGroupWorkspace(projectKey(opts.cwd));
 
-  // Register immediately so the worker is tracked even if boot fails — a
-  // created-but-unregistered workspace would be an untrackable orphan.
-  const agent: Agent = {
-    agentId,
-    label,
-    workspace: ws.workspaceRef,
-    surface: ws.surfaceRef,
-    workspaceId: ws.workspaceId,
-    surfaceId: ws.surfaceId,
-    cwd: workerCwd,
-    model: opts.model,
-    mode: opts.mode,
-    task: opts.task,
-    ownsWorkspace: true,
-    worktree,
-    status: "running",
-    spawnedAt: new Date().toISOString(),
-    lastDispatchAt: new Date().toISOString(),
-  };
-  upsert(agent);
+  let agent: Agent;
+  let t: Target;
 
-  // Block until the terminal is live so callers can immediately read/steer it.
-  // If it never boots, tear the workspace down rather than leak it.
-  try {
-    waitForTerminal({ workspace: ws.workspaceId, surface: ws.surfaceId });
-  } catch (err) {
+  if (group) {
+    // Add a pane to the shared workspace by splitting a current surface. Balance
+    // right-then-down like grid.ts (alternate by the current pane count).
+    const rep = group[0]!;
+    const wsId = rep.workspaceId ?? rep.workspace;
+    const before = listGridCells(wsId);
+    const beforeIds = new Set(before.map((c) => c.surfaceId));
+    const splitFrom = before[before.length - 1]?.surfaceId ?? rep.surfaceId ?? rep.surface;
+    const dir = group.length % 2 === 1 ? "right" : "down";
+    // Focus the new pane so its lazily-booted PTY comes up before we wait on it.
+    newSplit(dir, { workspace: wsId, surface: splitFrom }, { focus: true });
+    const cell = listGridCells(wsId).find((c) => !beforeIds.has(c.surfaceId));
+    if (!cell) throw new Error(`split in ${wsId} did not produce a new pane`);
+
+    t = { workspace: cell.workspaceId, surface: cell.surfaceId };
+    agent = {
+      agentId,
+      label,
+      workspace: rep.workspace, // shared workspace ref
+      surface: cell.surfaceRef, // the new pane's surface
+      workspaceId: cell.workspaceId,
+      surfaceId: cell.surfaceId,
+      cwd: workerCwd,
+      model: opts.model,
+      mode: opts.mode,
+      task: opts.task,
+      ownsWorkspace: false, // shared — kill closes just this pane while siblings remain
+      worktree,
+      status: "running",
+      spawnedAt: new Date().toISOString(),
+      lastDispatchAt: new Date().toISOString(),
+    };
+    upsert(agent);
+
+    // The split pane boots lazily; wait for its terminal, then tear down just
+    // this pane (not the shared workspace) if it never comes up.
     try {
-      closeWorkspace(ws.workspaceId);
-    } catch {
-      // best-effort cleanup
+      waitForTerminal(t);
+    } catch (err) {
+      try {
+        closeSurface(t);
+      } catch {
+        // best-effort cleanup
+      }
+      remove(agentId);
+      throw err;
     }
-    remove(agentId);
-    throw err;
-  }
 
-  const t: Target = { workspace: ws.workspaceId, surface: ws.surfaceId };
+    // newSplit opens a bare shell (no --command), so launch the program by
+    // typing it. cd into the worker's cwd first — the pane inherits the
+    // workspace's cwd, which may differ (worktree, or another project subdir).
+    if (command) {
+      const launch = `cd ${shellSingleQuote(workerCwd)} && ${command}`;
+      submit(t, launch);
+      if (launch.length > 200) sendKey(t, "Enter"); // paste-collapse guard
+    }
+  } else {
+    // Create a fresh workspace and let cmux launch the program in its terminal.
+    const ws = newWorkspace({ name: label, cwd: workerCwd, command, focus: false });
+    t = { workspace: ws.workspaceId, surface: ws.surfaceId };
+
+    // Register immediately so the worker is tracked even if boot fails — a
+    // created-but-unregistered workspace would be an untrackable orphan.
+    agent = {
+      agentId,
+      label,
+      workspace: ws.workspaceRef,
+      surface: ws.surfaceRef,
+      workspaceId: ws.workspaceId,
+      surfaceId: ws.surfaceId,
+      cwd: workerCwd,
+      model: opts.model,
+      mode: opts.mode,
+      task: opts.task,
+      // Only a --standalone worker owns its workspace exclusively. A groupable
+      // first-in-project worker stays ownerless so when siblings later split in,
+      // killing it closes just its pane (kill.ts's last-member rule then closes
+      // the workspace once empty) — exactly the grid.ts model.
+      ownsWorkspace: opts.standalone,
+      worktree,
+      status: "running",
+      spawnedAt: new Date().toISOString(),
+      lastDispatchAt: new Date().toISOString(),
+    };
+    upsert(agent);
+
+    // Block until the terminal is live so callers can immediately read/steer it.
+    // If it never boots, tear the workspace down rather than leak it.
+    try {
+      waitForTerminal(t);
+    } catch (err) {
+      try {
+        closeWorkspace(ws.workspaceId);
+      } catch {
+        // best-effort cleanup
+      }
+      remove(agentId);
+      throw err;
+    }
+  }
 
   // Clear the one-time bypass-permissions dialog so --yolo workers don't stall.
   if (opts.launch && opts.mode === "yolo") {

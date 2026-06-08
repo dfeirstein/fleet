@@ -115,8 +115,12 @@ export interface GridCell {
 }
 
 /** Split a pane/surface and return the NEW surface's ref. */
-export function newSplit(direction: "left" | "right" | "up" | "down", target: Target): string {
-  const args = ["new-split", direction, "--workspace", target.workspace, "--focus", "false"];
+export function newSplit(
+  direction: "left" | "right" | "up" | "down",
+  target: Target,
+  opts?: { focus?: boolean },
+): string {
+  const args = ["new-split", direction, "--workspace", target.workspace, "--focus", opts?.focus ? "true" : "false"];
   if (target.surface) args.push("--surface", target.surface);
   return parseRef(cmux(args), "surface");
 }

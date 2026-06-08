@@ -121,6 +121,7 @@ export function objective(goal: string, doneCheck: string, opts: ObjectiveOption
       launch: true,
       autostart: true,
       worktree: false,
+      standalone: true, // each objective attempt runs in its own workspace
     });
     console.log(`  spawned ${agent.agentId} (${agent.label}) — waiting for its turn to finish…`);
 
