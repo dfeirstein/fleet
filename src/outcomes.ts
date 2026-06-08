@@ -66,7 +66,14 @@ export function readOutcomes(session?: string): OutcomeRecord[] {
   const p = outcomesPath(s);
   if (!existsSync(p)) return [];
   const out: OutcomeRecord[] = [];
-  for (const line of readFileSync(p, "utf8").split("\n")) {
+  let body: string;
+  try {
+    body = readFileSync(p, "utf8");
+  } catch {
+    // file vanished/unreadable between existsSync and read — treat as empty
+    return out;
+  }
+  for (const line of body.split("\n")) {
     const t = line.trim();
     if (!t) continue;
     try {

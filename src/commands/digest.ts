@@ -60,7 +60,7 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       const dir = join(projectDir(a), CLAUDE_DOCS_DIR, "waves", waveId);
       try {
         mkdirSync(dir, { recursive: true });
-        wavePath = join(dir, `${a.label}.md`);
+        wavePath = join(dir, `${a.label.replace(/[^a-zA-Z0-9._-]/g, "_")}.md`);
         const header = `# Wave ${waveId} — ${a.label}\n\n- agent: ${a.agentId}\n- status: ${a.status}\n- cwd: ${a.cwd}\n- objective: ${a.task}\n\n---\n\n`;
         writeFileSync(wavePath, header + "```\n" + raw.trimEnd() + "\n```\n");
       } catch {
@@ -79,15 +79,21 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
     });
 
     // Enrich the trajectory store with a wave-close record (Move 1 + Move 2).
-    appendOutcome({
-      event: "complete",
-      agentId: a.agentId,
-      label: a.label,
-      status: a.status,
-      cwd: a.cwd,
-      worktreeBranch: a.worktree?.branch,
-      wavePath,
-    });
+    // Only a worker that has actually stopped is "complete" — gating to terminal
+    // status keeps a still-running worker from re-logging a bogus complete on
+    // every digest (which would dupe the same agent across waves).
+    const terminal = a.status === "idle" || a.status === "dead" || a.status === "error";
+    if (terminal) {
+      appendOutcome({
+        event: "complete",
+        agentId: a.agentId,
+        label: a.label,
+        status: a.status,
+        cwd: a.cwd,
+        worktreeBranch: a.worktree?.branch,
+        wavePath,
+      });
+    }
   }
 
   return { waveId, digests };

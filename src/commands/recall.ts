@@ -42,6 +42,8 @@ export function recall(query: string, opts: { cwd?: string; limit?: number; qmd?
   if (roots.length === 0) return { source: "none", hits: [], roots };
 
   // Opt-in power tier: QMD semantic search over its registered collections.
+  // NOTE: `qmd query` searches ALL collections registered with qmd, not just our
+  // two `roots` — scope is broader than the grep core and not bounded by `roots`.
   // Best-effort — any failure falls through to the grep core.
   if (opts.qmd && hasCmd("qmd")) {
     try {
@@ -64,8 +66,8 @@ export function recall(query: string, opts: { cwd?: string; limit?: number; qmd?
   const useRg = hasCmd("rg");
   const bin = useRg ? "rg" : "grep";
   const args = useRg
-    ? ["-F", "-i", "-n", "--no-heading", "--max-count", "3", "-g", "*.md", "-g", "*.jsonl", query, ...roots]
-    : ["-F", "-rin", "--include=*.md", "--include=*.jsonl", query, ...roots];
+    ? ["-F", "-i", "-n", "--no-heading", "--max-count", "3", "-g", "*.md", "-g", "*.jsonl", "--", query, ...roots]
+    : ["-F", "-rin", "--include=*.md", "--include=*.jsonl", "--", query, ...roots];
   try {
     const out = execFileSync(bin, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 8 * 1024 * 1024 });
     const hits = out.split("\n").map((l) => l.trimEnd()).filter(Boolean).slice(0, limit);

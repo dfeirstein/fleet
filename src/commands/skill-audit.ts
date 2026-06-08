@@ -7,7 +7,7 @@
 // Report-only by default; `--apply` flips stale-unused provisional skills to
 // quarantined. Retirement is reversible — the originating trajectory is still in
 // the outcome log, so a skill can be re-derived.
-import { readdirSync, readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
