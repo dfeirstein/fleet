@@ -31,7 +31,7 @@ import {
   orchestratorSession,
   type OrchestratorRecord,
 } from "../orchestrator-record.js";
-import { daemonStart, daemonStop } from "./daemon.js";
+import { ensureSharedDaemon } from "./daemon.js";
 
 /** Max Captains per family — a 2×2 quadrant. */
 const QUADRANT_CAP = 4;
@@ -120,14 +120,15 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
   // Badge the workspace so it's visibly the control plane in the sidebar.
   badgeCaptain(ws.workspaceId, undefined, name);
 
-  // Auto-start the supervisor, bound to THIS orchestrator (its session + target),
-  // so completion feedback flows back without a separate step. This is what was
-  // missing: a daemon not bound to the orchestrator's session sees 0 agents.
+  // Ensure the ONE shared daemon is running — it watches ALL live Captains
+  // (this one included, auto-discovered next tick) and routes each one's
+  // escalations to its own orchestrator. No per-Captain daemon.
   if (opts.daemon !== false) {
-    startDaemonFor(session, () => {
-      daemonStop(); // clear any stale/other-session daemon first
-      daemonStart();
-    });
+    try {
+      ensureSharedDaemon();
+    } catch (e) {
+      console.error(`note: could not ensure shared daemon: ${(e as Error).message}`);
+    }
   }
 
   return record;
@@ -222,11 +223,15 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
   // workspace).
   badgeCaptain(ws, cell.surfaceId, newName);
 
-  // Start a daemon bound to THIS sibling's session — independent of the other
-  // Captains' daemons (config/state are per-session). The existing Captains stay
-  // untouched.
+  // Ensure the ONE shared daemon is running — a no-op if a sibling already
+  // started it (single-instance lock), so `--split` never double-starts. The new
+  // Captain is auto-discovered on the next tick.
   if (opts.daemon !== false) {
-    startDaemonFor(newSession, () => daemonStart());
+    try {
+      ensureSharedDaemon();
+    } catch (e) {
+      console.error(`note: could not ensure shared daemon: ${(e as Error).message}`);
+    }
   }
 
   // Hotkey path: cmux opens a throwaway runner tab (`newTabInCurrentPane`) to run
@@ -264,19 +269,5 @@ function badgeCaptain(workspace: string, surface: string | undefined, name: stri
     cmux(args);
   } catch {
     // badge is decorative
-  }
-}
-
-/** Run a daemon-start step with FLEET_SESSION pinned to `session`, then restore. */
-function startDaemonFor(session: string, start: () => void): void {
-  const prevEnv = process.env.FLEET_SESSION;
-  process.env.FLEET_SESSION = session;
-  try {
-    start();
-  } catch (e) {
-    console.error(`note: could not auto-start daemon: ${(e as Error).message}`);
-  } finally {
-    if (prevEnv === undefined) delete process.env.FLEET_SESSION;
-    else process.env.FLEET_SESSION = prevEnv;
   }
 }

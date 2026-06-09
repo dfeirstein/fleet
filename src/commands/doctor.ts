@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { cmux } from "../cmux.js";
 import { loadOrchestrator } from "../orchestrator-record.js";
-import { readState, pidAlive } from "../daemon/config.js";
+import { readSharedState, pidAlive } from "../daemon/config.js";
 
 function ok(label: string, detail = ""): void {
   console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ""}`);
@@ -52,8 +52,11 @@ export function doctor(): void {
   if (orch) info(`orchestrator: ${orch.name}`, `${orch.workspaceRef} · session "${orch.session}"`);
   else info("no orchestrator declared", "run: fleet orchestrate <name>");
 
-  // daemon
-  const st = readState();
-  if (st && pidAlive(st.pid)) info("daemon running", `pid ${st.pid}, ${st.ticks} beats`);
-  else info("daemon not running", "started automatically by `fleet orchestrate`");
+  // daemon (the ONE shared supervisor watching all Captains)
+  const st = readSharedState();
+  if (st && pidAlive(st.pid)) {
+    info("daemon running", `pid ${st.pid}, ${st.ticks} beats, watching ${st.watching.length} Captain(s)`);
+  } else {
+    info("daemon not running", "started automatically by `fleet orchestrate`");
+  }
 }
