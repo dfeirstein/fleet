@@ -221,7 +221,7 @@ async function main(): Promise<void> {
     case "orchestrate":
     case "captain": {
       if (flags.split === true) {
-        const rec = captainSplit({ daemon: flags["no-daemon"] !== true, command: str(flags.command) });
+        const rec = captainSplit({ daemon: flags["no-daemon"] !== true, command: str(flags.command), closeOrigin: flags["close-origin"] === true });
         console.log(`⚓ Sibling Captain "${rec.name}" is live in a new pane of ${rec.workspaceRef} (fleet session "${rec.session}").`);
         console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
         break;
