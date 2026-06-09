@@ -67,10 +67,10 @@ export function evaluate(
   let urgent = false;
   let text = "";
 
-  if (sig.status === "awaiting-input") {
+  if (sig.status === "awaiting-input" || sig.status === "blocked-on-you") {
     cond = "awaiting";
     urgent = true;
-    text = `${sig.label} is awaiting input — needs a decision.`;
+    text = `${sig.label} is blocked on you — needs a decision.`;
   } else if (sig.status === "error") {
     cond = "error";
     urgent = true;

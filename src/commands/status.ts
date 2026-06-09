@@ -1,9 +1,10 @@
 // `fleet status` — the Fleet Dashboard. Merges the registry with a live cmux
 // read so the orchestrator sees real state, not just what it last recorded.
-import { listAgents, patch, handle, target } from "../registry.js";
+import { listAgents, patch, handle, target, type Agent } from "../registry.js";
 import { workspaceExists } from "../cmux.js";
 import { probeStatus } from "../status.js";
 import { listNotifications, latestByWorkspace, turnEnded } from "../notifications.js";
+import { pendingBlocks, type PendingBlock } from "../events.js";
 
 const ICON: Record<string, string> = {
   running: "●",
@@ -32,18 +33,27 @@ export interface FleetRow {
 export function snapshot(): FleetRow[] {
   const rows: FleetRow[] = [];
   const notifs = latestByWorkspace(listNotifications());
+  // The event-sourced blocked-on-you lane: feed pending question/permission/plan
+  // items, attributed to a worker by cwd (the one-shot reconcile has no session
+  // map). Empty/unsupported cmux → [] → the screen heuristic's awaiting-input
+  // remains the fallback for the same lane (decision #2).
+  const blocks = pendingBlocks();
   for (const a of listAgents()) {
     let status: string = a.status;
     if (!workspaceExists(handle(a))) {
       status = "dead";
     } else {
-      // Screen heuristic is the baseline. A fresh cmux turn-end notification
-      // deterministically forces "idle" — UNLESS the screen shows a state that
-      // needs attention (a blocking dialog, rate limit, or error), which wins.
+      // Precedence: a screen rate-limit/error wins (no clean event exists); else
+      // a feed-confirmed block → blocked-on-you; else a screen y/n dialog →
+      // awaiting-input; else a fresh turn-end notification → idle; else screen.
       const probe = probeStatus(target(a)).status;
       const wsId = a.workspaceId ?? a.workspace;
-      const attention = probe === "awaiting-input" || probe === "rate-limited" || probe === "error";
-      status = !attention && turnEnded(notifs.get(wsId), a.lastDispatchAt) ? "idle" : probe;
+      const screenAttention = probe === "rate-limited" || probe === "error";
+      if (screenAttention) status = probe;
+      else if (agentHasBlock(a, blocks)) status = "blocked-on-you";
+      else if (probe === "awaiting-input") status = "awaiting-input";
+      else if (turnEnded(notifs.get(wsId), a.lastDispatchAt)) status = "idle";
+      else status = probe;
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });
     rows.push({
@@ -57,6 +67,12 @@ export function snapshot(): FleetRow[] {
     });
   }
   return rows;
+}
+
+/** A pending feed block belongs to a worker if its cwd matches the worker's
+ *  cwd or its worktree path (feed items carry the claude session's cwd). */
+function agentHasBlock(a: Agent, blocks: PendingBlock[]): boolean {
+  return blocks.some((b) => !!b.cwd && (b.cwd === a.cwd || b.cwd === a.worktree?.path));
 }
 
 export function renderTable(rows: FleetRow[]): string {

@@ -4,10 +4,9 @@
 // Token-free: timers + cmux socket calls + our existing snapshot/notifications.
 // Each beat per Captain: reconcile, classify, take bounded auto-actions,
 // escalate anything that needs the orchestrator, refresh the sidebar.
-import { spawn as spawnProcess } from "node:child_process";
-import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
-import { readScreen, cmuxBin, workspaceExists, closeWorkspace, type Target } from "../cmux.js";
+import { readScreen, workspaceExists, closeWorkspace, streamEvents, eventsSupported, type Target, type EventStreamHandle } from "../cmux.js";
+import { FleetEventReactor, eventsCursorFile, type EventFrame, type AckFrame } from "../events.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
 import { resume } from "../commands/resume.js";
@@ -223,32 +222,44 @@ export function runLoop(): void {
   console.log(`[daemon] boot · shared · watching all live Captains · event-driven + ${settings.heartbeatSec}s tick`);
   doBeat();
 
-  // Fast path: react to cmux's notification stream in real time (a worker's
-  // completion fires a notification, so we respond in ~1s instead of waiting for
-  // the next tick). Reconnects if the stream drops.
-  let events: ReturnType<typeof spawnProcess> | undefined;
+  // Fast path: drive a FleetEventReactor off cmux's full event stream. Any
+  // interesting frame (agent activity, a feed pending block, a completion
+  // notification) triggers a debounced doBeat() — so we react in ~1s instead of
+  // waiting for the next tick. A durable cursor (~/.fleet/events.seq) resumes
+  // exactly where a restart left off; an ack gap forces one full reconcile.
+  // Capability-gated: an older cmux without events.stream falls back to the
+  // periodic tick below (today's poll behavior), no regression.
+  let events: EventStreamHandle | undefined;
   function startEventStream(): void {
     if (stopping) return;
+    if (!eventsSupported()) {
+      console.log("[daemon] events.stream unavailable — tick-driven polling only");
+      return;
+    }
+    const reactor = new FleetEventReactor({
+      onGap: () => {
+        console.log("[daemon] event gap — full reconcile");
+        doBeat();
+      },
+    });
     try {
-      events = spawnProcess(cmuxBin(), ["events", "--category", "notification", "--no-heartbeat", "--no-ack"], {
-        env: { ...process.env, CMUX_QUIET: "1" },
-        stdio: ["ignore", "pipe", "ignore"],
+      events = streamEvents({
+        cursorFile: eventsCursorFile(),
+        onAck: (a) => reactor.handleAck(a as AckFrame),
+        onFrame: (f) => {
+          if (reactor.handleFrame(f as EventFrame)) doBeat();
+        },
+        onExit: () => {
+          events = undefined;
+          if (!stopping) {
+            console.error("[daemon] event stream dropped; reconnecting in 3s");
+            setTimeout(startEventStream, 3000);
+          }
+        },
       });
     } catch (e) {
       console.error(`[daemon] could not start event stream: ${(e as Error).message}`);
-      return;
     }
-    if (events.stdout) {
-      createInterface({ input: events.stdout }).on("line", (line) => {
-        if (/notification\.(created|requested)/.test(line)) doBeat();
-      });
-    }
-    events.on("exit", () => {
-      if (!stopping) {
-        console.error("[daemon] event stream dropped; reconnecting in 3s");
-        setTimeout(startEventStream, 3000);
-      }
-    });
   }
   startEventStream();
 
@@ -261,7 +272,7 @@ export function runLoop(): void {
     stopping = true;
     clearInterval(timer);
     try {
-      events?.kill();
+      events?.stop();
     } catch {
       /* ignore */
     }

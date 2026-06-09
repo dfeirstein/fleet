@@ -419,7 +419,7 @@ async function main(): Promise<void> {
       break;
     }
     case "watch": {
-      watch({
+      await watch({
         untilIdle: flags["no-until-idle"] !== true,
         intervalActive: str(flags.interval) ? Number(str(flags.interval)) : WATCH_DEFAULTS.intervalActive,
         intervalIdle: str(flags.interval) ? Number(str(flags.interval)) : WATCH_DEFAULTS.intervalIdle,
