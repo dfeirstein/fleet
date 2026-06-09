@@ -12,6 +12,7 @@ import { readScreen } from "../cmux.js";
 import { listAgents, target, type Agent } from "../registry.js";
 import { CLAUDE_DOCS_DIR } from "../project-memory.js";
 import { appendOutcome } from "../outcomes.js";
+import { gateAgentProof, proofState } from "../proof.js";
 
 export interface WorkerDigest {
   agentId: string;
@@ -21,6 +22,7 @@ export interface WorkerDigest {
   project: string;
   wavePath?: string; // file the raw output was written to (handle for recall)
   tail: string; // last few lines — the only worker output that reaches the Captain
+  proof?: "verified" | "missing" | "failed"; // the proof-gate verdict at wave close
 }
 
 /** The project root a worker belongs to (its worktree repo, else its cwd). */
@@ -68,6 +70,50 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       }
     }
 
+    // Feature 3 — the proof gate on "done". Only a worker that has stopped is a
+    // completion candidate; gating to terminal status keeps a still-running
+    // worker from re-logging on every digest. The gate then decides whether it's
+    // a CLEAN complete: an idle worker whose proof passes → `complete`; an idle
+    // worker with missing/failed proof — or a dead/errored one — is recorded with
+    // its proof state but NEVER as a clean completion ("idle == done" is dead).
+    const terminal = a.status === "idle" || a.status === "dead" || a.status === "error";
+    let proof: "verified" | "missing" | "failed" | undefined;
+    if (terminal) {
+      const gate =
+        a.status === "idle"
+          ? gateAgentProof(a)
+          : { verdict: "proof-failed" as const, proofRefs: (a.proofs ?? []).map((p) => `${p.kind}:${p.ref}`) };
+      proof = proofState(gate.verdict);
+      if (gate.verdict === "complete") {
+        appendOutcome({
+          event: "complete",
+          agentId: a.agentId,
+          label: a.label,
+          status: a.status,
+          cwd: a.cwd,
+          worktreeBranch: a.worktree?.branch,
+          wavePath,
+          proof,
+          proofRefs: gate.proofRefs,
+        });
+      } else {
+        // Unproven done → an auditable verify-fail, not a complete.
+        appendOutcome({
+          event: "verify",
+          agentId: a.agentId,
+          label: a.label,
+          verdict: "fail",
+          check: "proof-gate",
+          status: a.status,
+          cwd: a.cwd,
+          worktreeBranch: a.worktree?.branch,
+          wavePath,
+          proof,
+          proofRefs: gate.proofRefs,
+        });
+      }
+    }
+
     digests.push({
       agentId: a.agentId,
       label: a.label,
@@ -76,24 +122,8 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       project: projectDir(a),
       wavePath,
       tail: lastLines(raw, 12),
+      proof,
     });
-
-    // Enrich the trajectory store with a wave-close record (Move 1 + Move 2).
-    // Only a worker that has actually stopped is "complete" — gating to terminal
-    // status keeps a still-running worker from re-logging a bogus complete on
-    // every digest (which would dupe the same agent across waves).
-    const terminal = a.status === "idle" || a.status === "dead" || a.status === "error";
-    if (terminal) {
-      appendOutcome({
-        event: "complete",
-        agentId: a.agentId,
-        label: a.label,
-        status: a.status,
-        cwd: a.cwd,
-        worktreeBranch: a.worktree?.branch,
-        wavePath,
-      });
-    }
   }
 
   return { waveId, digests };
@@ -104,7 +134,12 @@ export function renderDigests(waveId: string, digests: WorkerDigest[]): string {
   if (digests.length === 0) return "no live workers to digest";
   const lines = [`wave ${waveId} — ${digests.length} worker(s):`, ""];
   for (const d of digests) {
-    lines.push(`● ${d.label} [${d.status}]  ${d.objective}`);
+    const proofTag =
+      d.proof === "verified" ? "  ✓ complete (proof verified)"
+      : d.proof === "missing" ? "  ⚠ done (no proof)"
+      : d.proof === "failed" ? "  ✗ proof-failed"
+      : "";
+    lines.push(`● ${d.label} [${d.status}]${proofTag}  ${d.objective}`);
     if (d.wavePath) lines.push(`  raw → ${d.wavePath}  (pull detail with \`fleet recall\`)`);
     if (d.tail) lines.push(...d.tail.split("\n").map((l) => `  | ${l}`));
     lines.push("");

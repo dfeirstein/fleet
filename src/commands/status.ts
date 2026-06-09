@@ -25,6 +25,9 @@ export interface FleetRow {
   model: string;
   status: string;
   task: string;
+  /** Cheap proof flag for the done-without-proof diagnostic (no gate execution):
+   *  "none" = idle with nothing attached; "claimed" = idle with proof(s). */
+  proof?: "none" | "claimed";
 }
 
 /** Reconcile + classify every agent. Updates the registry as a side effect.
@@ -56,6 +59,10 @@ export function snapshot(): FleetRow[] {
       else status = probe;
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });
+    // Done-without-proof diagnostic: an idle worker that attached no proof hasn't
+    // cleared the gate. Cheap (registry-only) — the gate that RUNS proofs lives
+    // in `fleet done` / `fleet digest`, not on the status poll.
+    const proof = status === "idle" ? ((a.proofs?.length ?? 0) > 0 ? "claimed" : "none") : undefined;
     rows.push({
       agentId: a.agentId,
       label: a.label,
@@ -64,6 +71,7 @@ export function snapshot(): FleetRow[] {
       model: a.model,
       status,
       task: a.task,
+      proof,
     });
   }
   return rows;
@@ -84,8 +92,9 @@ export function renderTable(rows: FleetRow[]): string {
     const ws = r.workspace.padEnd(12);
     const model = r.model.padEnd(7);
     const st = r.status.padEnd(14);
+    const flag = r.proof === "none" ? "⚠ done (no proof) " : "";
     const task = r.task.length > 50 ? r.task.slice(0, 47) + "..." : r.task;
-    return `${icon} ${id} ${label} ${ws} ${model} ${st} ${task}`;
+    return `${icon} ${id} ${label} ${ws} ${model} ${st} ${flag}${task}`;
   });
   const active = rows.filter((r) => r.status === "running").length;
   const header = `  ${"id".padEnd(8)} ${"label".padEnd(16)} ${"workspace".padEnd(12)} ${"model".padEnd(7)} ${"status".padEnd(14)} task`;

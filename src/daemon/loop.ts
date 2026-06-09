@@ -103,8 +103,12 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     if (!prev || prev.hash !== hash) mem.screenSince[a.agentId] = { hash, since: now };
     const stuckMs = now - mem.screenSince[a.agentId]!.since;
 
+    // Feature 3 diagnostic: an idle worker that attached no proof is a
+    // done-without-proof candidate. Cheap (registry only) — the runnable gate
+    // stays in `fleet done`/`digest`, never on the daemon's timer.
+    const doneNoProof = a.status === "idle" && (a.proofs?.length ?? 0) === 0;
     const msg = evaluate(
-      { agentId: a.agentId, label: a.label, status: a.status, stuckMs },
+      { agentId: a.agentId, label: a.label, status: a.status, stuckMs, doneNoProof },
       mem,
       now,
       cooldownMs,
