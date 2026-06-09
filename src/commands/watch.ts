@@ -20,6 +20,7 @@ const ICON: Record<string, string> = {
   running: "●",
   idle: "◉",
   "awaiting-input": "◍",
+  "blocked-on-you": "◍",
   "rate-limited": "⏳",
   error: "✗",
   dead: "☠",

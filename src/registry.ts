@@ -11,7 +11,18 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { loadAllOrchestrators } from "./orchestrator-record.js";
 
-export type AgentStatus = "running" | "idle" | "awaiting-input" | "error" | "rate-limited" | "unknown" | "dead";
+// `awaiting-input` is the screen-scrape fallback (y/n dialogs); `blocked-on-you`
+// is the event-sourced lane (feed pending question/permission/plan). Both render
+// into the SAME lane (icon/color) — the distinction is provenance, not display.
+export type AgentStatus =
+  | "running"
+  | "idle"
+  | "awaiting-input"
+  | "blocked-on-you"
+  | "error"
+  | "rate-limited"
+  | "unknown"
+  | "dead";
 
 export interface Agent {
   agentId: string;
