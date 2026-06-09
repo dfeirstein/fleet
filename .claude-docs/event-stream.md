@@ -55,6 +55,8 @@ gate **fails closed**.
 ### Known non-blocking follow-ups (from review, not yet fixed)
 - Runnable proof validates only exit code, not relevance — `test:true` / `command:exit 0`
   passes (`proof.ts` ~96-99, `verify.ts` ~50-58).
-- `verify.ts` `execSync` has **no timeout** — `--proof test:'sleep 99999'` hangs
-  `fleet done`/`digest` (daemon is insulated). Add a bounded timeout → treat as FAIL.
 - `digest` re-runs runnable proofs each wave → duplicate `complete` rows; consider dedup.
+
+`runCheck` (`verify.ts`) caps every check at a 5-min timeout (`killSignal: SIGKILL`); a
+check that exceeds it is killed and treated as FAIL (fail closed) — a hanging proof can
+never stall `fleet done`/`digest`.

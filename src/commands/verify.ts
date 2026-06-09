@@ -41,6 +41,10 @@ function tail(text: string, lines = 25): string {
   return text.split("\n").slice(-lines).join("\n").trim();
 }
 
+/** Hard cap on a single proof/verify check. A check that exceeds it is killed and
+ * treated as FAIL (fail closed) — a hanging proof must never stall `fleet done`/`digest`. */
+const CHECK_TIMEOUT_MS = 5 * 60_000;
+
 /**
  * Run a check command in a directory and report pass/fail + tailed output. This
  * is the independent runner (judge ≠ generator): the caller runs the command
@@ -54,10 +58,24 @@ export function runCheck(dir: string, cmd: string): { pass: boolean; output: str
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 16 * 1024 * 1024,
+      timeout: CHECK_TIMEOUT_MS,
+      killSignal: "SIGKILL",
     });
     return { pass: true, output: tail(out) };
   } catch (err) {
-    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
+    const e = err as {
+      stdout?: Buffer | string;
+      stderr?: Buffer | string;
+      message?: string;
+      killed?: boolean;
+      signal?: string;
+    };
+    // A timeout kill (signal set) is fail-closed: the check did not pass, so say so plainly.
+    if (e.killed || e.signal) {
+      const combined = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
+      const note = `check killed after ${CHECK_TIMEOUT_MS / 1000}s timeout (treated as FAIL)`;
+      return { pass: false, output: tail(combined ? `${combined}\n${note}` : note) };
+    }
     const combined = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
     return { pass: false, output: tail(combined || e.message || "check failed") };
   }
