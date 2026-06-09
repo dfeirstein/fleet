@@ -1,4 +1,5 @@
 // `fleet kill <agent|--all>` — stop a worker and clean up its cmux surface.
+import { existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { sendKey, closeWorkspace, closeSurface, workspaceExists } from "../cmux.js";
 import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
@@ -64,19 +65,25 @@ function killOne(agent: Agent): void {
   // lost), remove the worktree, and leave the BRANCH for review.
   if (agent.worktree) {
     const { repo, path, branch } = agent.worktree;
-    if (hasChanges(path)) commitAll(path, `fleet WIP: ${agent.label}`);
-    if (hasChanges(path)) {
-      // The WIP commit failed (hook, identity unset, index lock) — a --force
-      // removal here would destroy the very work the commit was meant to save.
-      console.error(
-        `warning: uncommitted changes in ${path} could not be committed — worktree preserved; ` +
-          `commit them manually, then \`git -C ${repo} worktree remove ${path}\``,
-      );
-    } else {
-      if (callerInside(path)) {
-        console.error(`warning: your current directory is inside ${path}, which is being removed — cd out to avoid getcwd errors`);
-      }
+    if (!existsSync(path)) {
+      // Tree already gone — nothing to preserve (hasChanges fails closed and
+      // would read a missing tree as dirty); just prune the registration.
       removeWorktree(repo, path);
+    } else {
+      if (hasChanges(path)) commitAll(path, `fleet WIP: ${agent.label}`);
+      if (hasChanges(path)) {
+        // The WIP commit failed (hook, identity unset, index lock) — a --force
+        // removal here would destroy the very work the commit was meant to save.
+        console.error(
+          `warning: uncommitted changes in ${path} could not be committed — worktree preserved; ` +
+            `commit them manually, then \`git -C ${repo} worktree remove ${path}\``,
+        );
+      } else {
+        if (callerInside(path)) {
+          console.error(`warning: your current directory is inside ${path}, which is being removed — cd out to avoid getcwd errors`);
+        }
+        removeWorktree(repo, path);
+      }
     }
     reviewBranches.push(branch);
   }
