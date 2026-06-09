@@ -375,6 +375,28 @@ export function submit(target: Target, text: string): void {
 }
 
 /**
+ * The input-box region of a Claude Code TUI screen: the lines strictly between
+ * the LAST `╭…╮`/`╰…╯` border pair. Scoping the cleared-input probe here —
+ * rather than a raw tail of the screen — keeps echoed transcript text from
+ * reading as "still in the input box" (which caused spurious retry-Enters that
+ * could land on a permission dialog's highlighted default). Falls back to the
+ * last 9 lines when no box is visible (mid-redraw). Pure; exported for tests.
+ */
+export function inputBoxRegion(screen: string): string {
+  const lines = screen.split("\n");
+  for (let close = lines.length - 1; close >= 0; close--) {
+    if (!lines[close]?.trimStart().startsWith("╰")) continue;
+    for (let open = close - 1; open >= 0; open--) {
+      if (lines[open]?.trimStart().startsWith("╭")) {
+        return lines.slice(open + 1, close).join("\n");
+      }
+    }
+    break; // a ╰ with no matching ╭ above — treat as no box
+  }
+  return lines.slice(-9).join("\n");
+}
+
+/**
  * Submit a prompt into a Claude Code TUI reliably. cmux `send` arrives as a
  * bracketed paste; an Enter sent too soon lands INSIDE the paste (becoming a
  * newline in the input) instead of submitting, so messages just pile up in the
@@ -389,7 +411,7 @@ export function submitToClaude(target: Target, text: string): void {
   sendKey(target, "Enter");
 
   // A distinctive, whitespace-normalized chunk of the message. If it's still in
-  // the bottom of the screen (the input box), the prompt wasn't submitted yet.
+  // the input box, the prompt wasn't submitted yet.
   const probe = text.replace(/\s+/g, " ").trim().slice(0, 28);
   for (let i = 0; i < 6; i++) {
     sleepMs(450);
@@ -399,8 +421,8 @@ export function submitToClaude(target: Target, text: string): void {
     } catch {
       return;
     }
-    const tail = screen.split("\n").slice(-9).join("\n").replace(/\s+/g, " ");
-    if (probe.length < 4 || !tail.includes(probe)) return; // left the input → submitted
+    const box = inputBoxRegion(screen).replace(/\s+/g, " ");
+    if (probe.length < 4 || !box.includes(probe)) return; // left the input → submitted
     sendKey(target, "Enter"); // still in the input box → nudge again
   }
 }

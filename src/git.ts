@@ -38,11 +38,13 @@ export function removeWorktree(repo: string, path: string): void {
   }
 }
 
+/** Fails CLOSED: a `git status` error reports "changes present", so a caller
+ *  (kill) never force-removes a tree whose state can't be confirmed clean. */
 export function hasChanges(worktree: string): boolean {
   try {
     return git(worktree, ["status", "--porcelain"]).length > 0;
   } catch {
-    return false;
+    return true;
   }
 }
 
