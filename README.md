@@ -58,6 +58,11 @@ fleet captain                   # launches "⚓ <YourName>" — your Fleet Capta
 
 - **`fleet doctor`** — diagnose an install (cmux reachable? PATH? skill? daemon?).
 - **`fleet setup`** — re-link after a `git pull` (idempotent).
+- **`fleet setup --hotkey`** — also bind **⌘⇧Y** in your `cmux.json` to spawn a
+  sibling Captain (`fleet captain --split`) in a split pane of the focused
+  workspace. Merges JSONC-safely (backs up first, preserves your other keys, idempotent)
+  then `cmux reload-config`. cmux asks to trust the command on first press; change the
+  key by editing `actions.fleet.spawnCaptain.shortcut`.
 
 ```
 $ fleet doctor

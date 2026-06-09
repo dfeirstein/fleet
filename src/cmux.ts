@@ -319,3 +319,17 @@ export function submitToClaude(target: Target, text: string): void {
 export function closeWorkspace(workspace: string): void {
   cmux(["close-workspace", "--workspace", workspace]);
 }
+
+/**
+ * Reload cmux config in place (Ghostty + ~/.config/cmux/cmux.json), no restart.
+ * Best-effort: returns false instead of throwing if cmux isn't reachable, so a
+ * config edit still succeeds when the app happens to be down.
+ */
+export function reloadConfig(): boolean {
+  try {
+    cmux(["reload-config"]);
+    return true;
+  } catch {
+    return false;
+  }
+}

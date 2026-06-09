@@ -36,6 +36,7 @@ the user's Max plan.
 ./bin/fleet <command>     # run the CLI (or: npm run fleet -- <command>) — no build
 npm run typecheck         # tsc --noEmit — the one automated gate, keep it green
 ./bin/fleet doctor        # smoke test: install / cmux reachable / PATH / skill
+./bin/fleet setup --hotkey # also bind ⌘⇧Y in cmux.json → `fleet captain --split` (JSONC-safe merge, backs up, reload-config)
 ./bin/fleet help          # surface of every command
 fleet audit-docs          # eval gate: score CLAUDE.md + flag stale currency (fails closed)
 fleet currency            # refresh .claude-docs/versions.md from npm/PyPI registries
