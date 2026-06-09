@@ -123,7 +123,9 @@ Commands:
                                              prints transitions + sidebar dash
         [--no-until-idle]                    Keep watching (don't exit on idle)
   kill <agent | --all>                       Stop a worker and clean up
-  setup                                      Link fleet onto PATH + install skill
+  setup [--hotkey]                           Link fleet onto PATH + install skill
+                                             (--hotkey also binds ⌘⇧Y in cmux.json
+                                             → spawn a sibling Captain)
   doctor                                     Diagnose the install (cmux/PATH/…)
   orchestrate|captain [name] [--resume]      Appoint a Fleet Captain — a badged
         [--split]                            control-plane workspace you talk to
@@ -209,7 +211,7 @@ async function main(): Promise<void> {
       break;
     }
     case "setup": {
-      setup();
+      setup({ hotkey: flags.hotkey === true });
       break;
     }
     case "doctor": {
