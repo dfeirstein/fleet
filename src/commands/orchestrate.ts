@@ -71,7 +71,7 @@ function writePromptFile(name: string, session: string): string {
   return promptPath;
 }
 
-export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boolean } = {}): OrchestratorRecord {
+export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boolean; model?: string } = {}): OrchestratorRecord {
   mkdirSync(fleetDir(), { recursive: true });
   const session = slug(name);
 
@@ -92,9 +92,11 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
   // re-applies the (possibly updated) doctrine system prompt on top of it. Use it
   // to adopt new doctrine mid-life; the prior workspace should be closed after.
   const cont = opts.resume ? "--continue " : "";
+  // --model pins the Captain to a specific model (e.g. claude-fable-5); omitted → user default.
+  const mdl = opts.model ? `--model '${opts.model}' ` : "";
   // Every Captain launches with Remote Control on, named for its session, so the
   // user can talk to any Captain (yoshi, yoshi-2, …) from the Claude mobile app.
-  const command = `FLEET_SESSION=${session} claude --remote-control '${session}' ${cont}--append-system-prompt-file '${promptPath}'`;
+  const command = `FLEET_SESSION=${session} claude --remote-control '${session}' ${mdl}${cont}--append-system-prompt-file '${promptPath}'`;
 
   // Resuming a Captain that shares its workspace with live siblings (a quadrant):
   // resume IN-PLACE. Closing the whole workspace would nuke the siblings, and a
@@ -166,7 +168,7 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
  * CURRENT Captain's workspace. No inherited conversation, no initial task: just
  * an idle Captain ready for input. Refuses past a 4-Captain quadrant.
  */
-export function captainSplit(opts: { daemon?: boolean; command?: string; closeOrigin?: boolean } = {}): OrchestratorRecord {
+export function captainSplit(opts: { daemon?: boolean; command?: string; closeOrigin?: boolean; model?: string } = {}): OrchestratorRecord {
   mkdirSync(fleetDir(), { recursive: true });
 
   // Target workspace: the calling pane's ($CMUX_WORKSPACE_ID) if run from inside
@@ -217,9 +219,10 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
   // overrides the program for testing (e.g. `sleep 600`) so the flow runs without
   // real Claude.
   const promptPath = writePromptFile(newName, newSession);
+  const mdl = opts.model ? `--model '${opts.model}' ` : "";
   const command =
     opts.command ??
-    `FLEET_SESSION=${newSession} claude --remote-control '${newSession}' --append-system-prompt-file '${promptPath}'`;
+    `FLEET_SESSION=${newSession} claude --remote-control '${newSession}' ${mdl}--append-system-prompt-file '${promptPath}'`;
   const record = launchInSplit(ws, dir, fromSurface, newName, newSession, command, { daemon: opts.daemon });
 
   // Hotkey path: cmux opens a throwaway runner tab (`newTabInCurrentPane`) to run

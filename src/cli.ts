@@ -151,12 +151,14 @@ Commands:
                                              → spawn a sibling Captain)
   doctor                                     Diagnose the install (cmux/PATH/…)
   orchestrate|captain [name] [--resume]      Appoint a Fleet Captain — a badged
-        [--split]                            control-plane workspace you talk to
+        [--split] [--model M]                control-plane workspace you talk to
                                              (--resume re-appoints an existing
                                              Captain, keeping her conversation;
                                              --split adds a FRESH sibling Captain
                                              in a split pane of the focused
-                                             workspace — up to a 2×2 quadrant)
+                                             workspace — up to a 2×2 quadrant;
+                                             --model pins the Captain's model,
+                                             e.g. claude-fable-5)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
                                              stuck/zombie detection, escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
@@ -244,13 +246,13 @@ async function main(): Promise<void> {
     case "orchestrate":
     case "captain": {
       if (flags.split === true) {
-        const rec = captainSplit({ daemon: flags["no-daemon"] !== true, command: str(flags.command), closeOrigin: flags["close-origin"] === true });
+        const rec = captainSplit({ daemon: flags["no-daemon"] !== true, command: str(flags.command), closeOrigin: flags["close-origin"] === true, model: str(flags.model) });
         console.log(`⚓ Sibling Captain "${rec.name}" is live in a new pane of ${rec.workspaceRef} (fleet session "${rec.session}").`);
         console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
         break;
       }
       const name = positionals.join(" ").trim() || "Captain";
-      const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true, resume: flags.resume === true });
+      const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true, resume: flags.resume === true, model: str(flags.model) });
       console.log(`⚓ Fleet Captain "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
       console.log(`Switch to the "⚓ ${rec.name}" workspace in cmux and talk to the Captain.`);
       console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
