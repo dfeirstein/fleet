@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# fleet wave digests (runtime artifacts)
+.claude-docs/waves/

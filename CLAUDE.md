@@ -19,6 +19,7 @@ the user's Max plan.
     `~/.fleet/daemon.pid` single-instance lock); `captain --split` calls `ensureSharedDaemon()` and
     NEVER spawns a per-Captain daemon. Note: `fleet daemon start` returns before the new pane's PTY
     boots, so an immediate `daemon status` may say "not running" for ~2-3s — it's a boot race, not down.
+  - `src/events.ts` — event reactor: classifies the cmux event stream into worker-state signals (daemon + watch consume it). `src/proof.ts` + `commands/done.ts` — the proof-of-work gate.
   - `src/registry.ts` / `project-memory.ts` / `status.ts` / `notifications.ts` — state, memory paths, classifier, turn-end signal
   - `skills/fleet/` — `SKILL.md` + `orchestrator-doctrine.md` (teach a Captain the loop)
 
@@ -72,6 +73,13 @@ E2E. See `.claude-docs/verification.md`.
 - **Never write a version/model ID/API shape from memory** — see Currency below.
 - IMPORTANT: a generator never grades its own work; route verification through a
   *separate* reviewer, and re-check a fix with the reviewer, not the fixer.
+- **Event stream is push-*triggered-pull***: `notification.*`/`feed.*` payloads are
+  redacted — pull content via `*.list` RPC. Feed items key on `session_id`, not
+  `workspace_id` (map from `agent.hook.*`). Ignore `category:"sidebar"` frames (our own
+  echoes → infinite loop). Gate on `cmux capabilities`; fall back to polling. See
+  `.claude-docs/event-stream.md`.
+- **Proof gate `note:` is metadata-only** — never satisfies "done" alone; `complete`
+  needs a checkable `test:`/`file:` proof (judge ≠ generator, fail closed).
 
 ## Behavioral Rules
 Bias toward caution over speed. Use judgment on trivial tasks.
@@ -85,6 +93,7 @@ On-demand documentation index — each file loads when its topic is relevant.
 Maintained by `fleet bootstrap`/`fleet currency`; re-audit with `fleet audit-docs`.
 ```
 architecture|.claude-docs/architecture.md|Module map, the cmux.ts shell-out seam, spawn flow, ~/.fleet state, the daemon
+event-stream|.claude-docs/event-stream.md|Event reactor (cmux event stream → worker state) + the proof-of-work gate: redacted payloads, session↔workspace map, sidebar self-echo, done-signal, note: fail-closed rule
 cmux-addressing|.claude-docs/cmux-addressing.md|Workspace+surface UUID addressing, TUI bracketed-paste submit, lazy PTY boot
 typescript-esm|.claude-docs/typescript-esm.md|ESM + tsx: .js import extensions, import type, strict/noUncheckedIndexedAccess, no build
 verification|.claude-docs/verification.md|No test runner — typecheck + CLI + fleet verify/audit-docs (fail-closed) eval gates
