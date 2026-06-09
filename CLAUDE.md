@@ -15,7 +15,8 @@ the user's Max plan.
   - `src/cmux.ts` — **the only place that shells out to cmux** (typed wrapper)
   - `src/commands/` — spawn, grid, read, send, status, watch, kill, resume, verify, bootstrap, currency, audit-docs, capture, objective, daemon, notify, doctor, setup, orchestrate
   - `src/daemon/` — always-on heartbeat supervisor (config, inbox, channel, policy, loop).
-    **ONE shared daemon** watches ALL live Captains in a quadrant (`loadAllOrchestrators` + a
+    **ONE shared daemon** watches ALL live Captains in a quadrant (`loadAllOrchestrators` filtered by
+    `surfaceExists` — surface-level, since quadrant siblings share a workspace — plus a
     `~/.fleet/daemon.pid` single-instance lock); `captain --split` calls `ensureSharedDaemon()` and
     NEVER spawns a per-Captain daemon. Note: `fleet daemon start` returns before the new pane's PTY
     boots, so an immediate `daemon status` may say "not running" for ~2-3s — it's a boot race, not down.
@@ -60,6 +61,9 @@ E2E. See `.claude-docs/verification.md`.
    shows no unexpected drift.
 
 ## Gotchas
+- **Quadrant siblings share ONE workspace** (each Captain is a separate surface/pane).
+  Reason about Captain liveness/teardown by **surface** (`surfaceExists`), not workspace —
+  a workspace check can't tell a closed sibling pane from its live neighbors.
 - **Address workers by `--workspace <uuid> --surface <uuid>` together.** Workspace
   alone breaks once a browser surface exists ("Surface is not a terminal"); surface
   alone is unreliable; `workspace:N`/`surface:N` refs renumber — use UUIDs.

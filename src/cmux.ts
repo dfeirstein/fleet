@@ -264,6 +264,15 @@ export function workspaceExists(workspace: string): boolean {
   }
 }
 
+/** True if a specific surface (pane) still exists within its workspace. */
+export function surfaceExists(target: { workspace: string; surface: string }): boolean {
+  try {
+    return listGridCells(target.workspace).some((c) => c.surfaceId === target.surface);
+  } catch {
+    return false;
+  }
+}
+
 export interface NewWorkspaceResult {
   workspaceRef: string;
   workspaceId: string;

@@ -5,7 +5,7 @@
 // Each beat per Captain: reconcile, classify, take bounded auto-actions,
 // escalate anything that needs the orchestrator, refresh the sidebar.
 import { createHash } from "node:crypto";
-import { readScreen, workspaceExists, closeWorkspace, streamEvents, eventsSupported, type Target, type EventStreamHandle } from "../cmux.js";
+import { readScreen, surfaceExists, closeWorkspace, streamEvents, eventsSupported, type Target, type EventStreamHandle } from "../cmux.js";
 import { FleetEventReactor, eventsCursorFile, type EventFrame, type AckFrame } from "../events.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
@@ -25,9 +25,13 @@ import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-r
 import { routeMessage } from "./channel.js";
 import { newMemory, evaluate, waveCompleteMessage, type DaemonMemory } from "./policy.js";
 
-/** Every Captain whose workspace is still live — the set the daemon watches. */
+/** Every Captain whose surface (pane) is still live — the set the daemon watches.
+ *  Surface-level, not workspace-level: quadrant siblings share one workspace, so a
+ *  workspace check can't tell a closed sibling pane apart from its live neighbors. */
 export function liveCaptains(): OrchestratorRecord[] {
-  return loadAllOrchestrators().filter((o) => o.workspaceId && workspaceExists(o.workspaceId));
+  return loadAllOrchestrators().filter(
+    (o) => o.workspaceId && o.surfaceId && surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId }),
+  );
 }
 
 /** Build a per-Captain DaemonConfig from its record + the shared tunables. */

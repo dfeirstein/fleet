@@ -18,7 +18,7 @@ import {
   listGridCells,
   closeWorkspace,
   closeSurface,
-  workspaceExists,
+  surfaceExists,
   focusedWorkspace,
   waitForTerminal,
   submit,
@@ -96,9 +96,34 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
   // user can talk to any Captain (yoshi, yoshi-2, …) from the Claude mobile app.
   const command = `FLEET_SESSION=${session} claude --remote-control '${session}' ${cont}--append-system-prompt-file '${promptPath}'`;
 
-  // When resuming, close the previous Captain workspace FIRST so its process
-  // releases the conversation file — `claude --continue` must be the only process
-  // on that session, or the shared history file can corrupt.
+  // Resuming a Captain that shares its workspace with live siblings (a quadrant):
+  // resume IN-PLACE. Closing the whole workspace would nuke the siblings, and a
+  // fresh workspace would pop the resumed Captain out of the quadrant. Instead,
+  // close only the prev Captain's own pane (frees its conversation file) and split
+  // a new pane in the SAME workspace off a live sibling.
+  if (opts.resume && prev?.workspaceId && prev.surfaceId) {
+    const siblings = loadAllOrchestrators().filter(
+      (o) =>
+        o.session !== session &&
+        o.workspaceId === prev.workspaceId &&
+        o.surfaceId !== prev.surfaceId &&
+        surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId }),
+    );
+    if (siblings.length > 0) {
+      try {
+        closeSurface({ workspace: prev.workspaceId, surface: prev.surfaceId });
+      } catch {
+        // already gone — fine
+      }
+      return launchInSplit(prev.workspaceId, "right", siblings[0]!.surfaceId, name, session, command, {
+        daemon: opts.daemon,
+      });
+    }
+  }
+
+  // Solo resume (Captain owns its workspace): close the whole prior workspace FIRST
+  // so its process releases the conversation file — `claude --continue` must be the
+  // only process on that session, or the shared history file can corrupt.
   if (opts.resume && prev?.workspaceId) {
     try {
       closeWorkspace(prev.workspaceId);
@@ -155,10 +180,12 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
   }
 
   // Family = the calling session's base name (e.g. yoshi-3 → yoshi). Count the
-  // family's LIVE Captains (records whose workspace still exists).
+  // family's LIVE Captains. Surface-level, not workspace-level: quadrant siblings
+  // share one workspace, so a workspace check would keep counting a Captain whose
+  // pane was closed — wrongly consuming a slot.
   const family = familyOf(orchestratorSession());
   const live = loadAllOrchestrators().filter(
-    (o) => familyOf(o.session) === family && workspaceExists(o.workspaceId),
+    (o) => familyOf(o.session) === family && surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId }),
   );
   if (live.length >= QUADRANT_CAP) {
     throw new Error(`Quadrant full (${QUADRANT_CAP} Captains) — close one first.`);
@@ -185,57 +212,15 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
         ? cells[0]!.surfaceId
         : cells[1]!.surfaceId;
 
-  const beforeIds = new Set(cells.map((c) => c.surfaceId));
-  // Focus the new pane so its lazily-booted PTY comes up before we wait on it.
-  newSplit(dir, { workspace: ws, surface: fromSurface }, { focus: true });
-  const cell = listGridCells(ws).find((c) => !beforeIds.has(c.surfaceId));
-  if (!cell) throw new Error(`split in ${ws} did not produce a new pane`);
-
-  const target = { workspace: cell.workspaceId, surface: cell.surfaceId };
-  const workspaceRef = (() => {
-    try {
-      return listSurfaces(ws).workspace_ref;
-    } catch {
-      return ws;
-    }
-  })();
-
-  // Write the record BEFORE launching so the daemon (bound to newSession) and the
-  // launched Claude (whose registry derives from this record) both resolve it.
-  const record: OrchestratorRecord = {
-    name: newName,
-    session: newSession,
-    workspaceId: cell.workspaceId,
-    surfaceId: cell.surfaceId,
-    workspaceRef,
-    declaredAt: new Date().toISOString(),
-  };
-  writeFileSync(orchestratorPath(newSession), JSON.stringify(record, null, 2));
-
-  // The split pane boots lazily (bare shell, no --command) — wait for it, then
-  // launch a FRESH Captain by typing the command. `--command` overrides the
-  // program for testing (e.g. `sleep 600`) so the flow runs without real Claude.
-  waitForTerminal(target);
+  // The split pane boots lazily (bare shell, no --command) — `launchInSplit` waits
+  // for it, then launches a FRESH Captain by typing the command. `--command`
+  // overrides the program for testing (e.g. `sleep 600`) so the flow runs without
+  // real Claude.
   const promptPath = writePromptFile(newName, newSession);
   const command =
     opts.command ??
     `FLEET_SESSION=${newSession} claude --remote-control '${newSession}' --append-system-prompt-file '${promptPath}'`;
-  submit(target, command);
-
-  // Badge just this pane (siblings share the workspace, so don't badge the whole
-  // workspace).
-  badgeCaptain(ws, cell.surfaceId, newName);
-
-  // Ensure the ONE shared daemon is running — a no-op if a sibling already
-  // started it (single-instance lock), so `--split` never double-starts. The new
-  // Captain is auto-discovered on the next tick.
-  if (opts.daemon !== false) {
-    try {
-      ensureSharedDaemon();
-    } catch (e) {
-      console.error(`note: could not ensure shared daemon: ${(e as Error).message}`);
-    }
-  }
+  const record = launchInSplit(ws, dir, fromSurface, newName, newSession, command, { daemon: opts.daemon });
 
   // Hotkey path: cmux opens a throwaway runner tab (`newTabInCurrentPane`) to run
   // this command, while the split above is the real new Captain pane. Close that
@@ -248,6 +233,71 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
       closeSurface({ workspace: ws, surface: process.env.CMUX_SURFACE_ID });
     } catch {
       // best-effort — a leftover tab is cosmetic, never fail the spawn over it
+    }
+  }
+
+  return record;
+}
+
+/**
+ * Split a fresh pane in `workspace` off `fromSurface`, launch `command` in it as a
+ * Captain named `name`/`session`, persist the record, badge the pane, and ensure the
+ * shared daemon. Returns the new record. Shared by `captainSplit` (fresh sibling) and
+ * the in-place `--resume` path — both tile a new Captain pane into an existing
+ * workspace, so the split→resolve-new-cell→wait→submit→record→badge→daemon sequence
+ * lives here once.
+ */
+function launchInSplit(
+  workspace: string,
+  dir: "left" | "right" | "up" | "down",
+  fromSurface: string | undefined,
+  name: string,
+  session: string,
+  command: string,
+  opts: { daemon?: boolean } = {},
+): OrchestratorRecord {
+  const beforeIds = new Set(listGridCells(workspace).map((c) => c.surfaceId));
+  // Focus the new pane so its lazily-booted PTY comes up before we wait on it.
+  newSplit(dir, { workspace, surface: fromSurface }, { focus: true });
+  const cell = listGridCells(workspace).find((c) => !beforeIds.has(c.surfaceId));
+  if (!cell) throw new Error(`split in ${workspace} did not produce a new pane`);
+
+  const target = { workspace: cell.workspaceId, surface: cell.surfaceId };
+  const workspaceRef = (() => {
+    try {
+      return listSurfaces(workspace).workspace_ref;
+    } catch {
+      return workspace;
+    }
+  })();
+
+  // Write the record BEFORE launching so the daemon (bound to session) and the
+  // launched Claude (whose registry derives from this record) both resolve it.
+  const record: OrchestratorRecord = {
+    name,
+    session,
+    workspaceId: cell.workspaceId,
+    surfaceId: cell.surfaceId,
+    workspaceRef,
+    declaredAt: new Date().toISOString(),
+  };
+  writeFileSync(orchestratorPath(session), JSON.stringify(record, null, 2));
+
+  // Wait for the lazily-booted PTY, then launch by typing the command.
+  waitForTerminal(target);
+  submit(target, command);
+
+  // Badge just this pane (siblings share the workspace, so don't badge the whole
+  // workspace).
+  badgeCaptain(cell.workspaceId, cell.surfaceId, name);
+
+  // Ensure the ONE shared daemon is running — a no-op if a sibling already started
+  // it (single-instance lock). The new Captain is auto-discovered on the next tick.
+  if (opts.daemon !== false) {
+    try {
+      ensureSharedDaemon();
+    } catch (e) {
+      console.error(`note: could not ensure shared daemon: ${(e as Error).message}`);
     }
   }
 
