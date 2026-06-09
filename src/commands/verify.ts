@@ -19,7 +19,8 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveAgent } from "../registry.js";
+import { resolveAgent, patch } from "../registry.js";
+import { parseProof, type ProofArtifact } from "../proof.js";
 import { appendOutcome } from "../outcomes.js";
 
 /** Pick the default check for a directory: `npm test` if defined, else a tsc typecheck. */
@@ -82,6 +83,30 @@ export function runCheck(dir: string, cmd: string): { pass: boolean; output: str
 }
 
 /**
+ * Decide whether a Captain-run `fleet verify` result should be auto-attached to
+ * the worker as a proof-of-work claim. Pure (unit-tested). Attach only when:
+ *   - the check PASSED (a failing check proves nothing — never attach);
+ *   - the command is a real check (parseProof's no-op guard rejects
+ *     `true`-style self-certs);
+ *   - the same command isn't already attached (dedup by ref).
+ */
+export function verifyProofToAttach(
+  pass: boolean,
+  cmd: string,
+  existing: ProofArtifact[] | undefined,
+): ProofArtifact | undefined {
+  if (!pass) return undefined;
+  let artifact: ProofArtifact;
+  try {
+    artifact = parseProof(`command:${cmd}`);
+  } catch {
+    return undefined; // empty/no-op command — would self-certify, skip
+  }
+  if ((existing ?? []).some((p) => p.ref === artifact.ref)) return undefined;
+  return artifact;
+}
+
+/**
  * Independently verify a worker's output by running a check in the worker's
  * directory — the agent's worktree if it has one, else its cwd.
  */
@@ -93,6 +118,15 @@ export function verify(idOrLabel: string, check?: string): { pass: boolean; outp
   const cmd = check ?? defaultCheck(dir);
 
   const result = runCheck(dir, cmd);
+
+  // A passing Captain-run check IS independent verification (judge ≠ generator),
+  // so auto-attach it as a proof — the existing verify habit greens the proof
+  // gate instead of leaving idle workers flagged `⚠ done (no proof)`.
+  const proof = verifyProofToAttach(result.pass, cmd, agent.proofs);
+  if (proof) {
+    patch(agent.agentId, { proofs: [...(agent.proofs ?? []), proof] });
+    result.output = `${result.output}\n✓ proof attached: ${proof.kind}:${proof.ref}`.trim();
+  }
 
   // Trajectory store: record the independent eval verdict (Move 1). Best-effort.
   appendOutcome({

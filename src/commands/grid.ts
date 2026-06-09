@@ -14,7 +14,7 @@ import {
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { upsert, type Agent } from "../registry.js";
-import { buildClaudeCommand, acceptBypassDialog, type PermMode } from "./spawn.js";
+import { buildWorkerLaunchCommand, proofInstruction, acceptBypassDialog, type PermMode } from "./spawn.js";
 import { repoRoot, currentBranch, addWorktree } from "../git.js";
 
 export interface GridOptions {
@@ -80,6 +80,9 @@ export function grid(opts: GridOptions): Agent[] {
   cells.forEach((cell, i) => {
     const target: Target = { workspace: cell.workspaceId, surface: cell.surfaceId };
     const label = `${opts.labelPrefix}-${i + 1}`;
+    // The id is minted BEFORE the launch line so the worker's env exports and
+    // proof instruction can name it concretely.
+    const agentId = newAgentId();
 
     // Per-pane worktree isolation (each on its own branch off current HEAD).
     let worktree: Agent["worktree"];
@@ -94,7 +97,12 @@ export function grid(opts: GridOptions): Agent[] {
       if (cellTask) cellTask += `\n\n(Isolated git worktree on branch ${branch}; commit your work to it when done.)`;
     }
 
-    const claudeCmd = buildClaudeCommand(opts.model, cellTask, cellTask.length > 0, opts.mode);
+    // Same B3 wiring as spawn: a dispatched task carries the proof instruction,
+    // and the launch line exports FLEET_SESSION/FLEET_AGENT_ID so `fleet done`
+    // resolves from inside the pane. Idle panes (no task) get the env exports
+    // too — their brief arrives later via `fleet send`.
+    if (cellTask) cellTask += `\n\n${proofInstruction(agentId)}`;
+    const claudeCmd = buildWorkerLaunchCommand(agentId, opts.model, cellTask, cellTask.length > 0, opts.mode);
     const command = worktree ? `cd '${worktree.path}' && ${claudeCmd}` : claudeCmd;
 
     waitForTerminal(target);
@@ -103,7 +111,7 @@ export function grid(opts: GridOptions): Agent[] {
     if (opts.mode === "yolo") acceptBypassDialog(target);
 
     const agent: Agent = {
-      agentId: newAgentId(),
+      agentId,
       label,
       workspace: wsRef,
       surface: cell.surfaceRef,

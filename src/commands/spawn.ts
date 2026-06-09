@@ -17,7 +17,7 @@ import {
   submitToClaude,
   type Target,
 } from "../cmux.js";
-import { upsert, remove, listAgents, type Agent } from "../registry.js";
+import { upsert, remove, patch, listAgents, sessionId, type Agent } from "../registry.js";
 import { appendOutcome } from "../outcomes.js";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
@@ -147,6 +147,33 @@ export function acceptBypassDialog(target: Target): boolean {
   return false;
 }
 
+/**
+ * The proof-gate instruction appended to every dispatched brief (B3): tells the
+ * worker, with its concrete agent id, how to attach proof when it finishes.
+ * Shared by spawn (post-ready dispatch) and grid (task baked into the launch line).
+ */
+export function proofInstruction(agentId: string): string {
+  return `(When you finish, prove it: run \`fleet done ${agentId} --proof test:'<command that verifies your work>'\` — or --proof file:<path> for a produced artifact. A note:'…' proof is metadata only and never satisfies the gate. FLEET_SESSION and FLEET_AGENT_ID are exported in your environment, so the command works as-is.)`;
+}
+
+/**
+ * The full launch line for a worker: FLEET_SESSION + FLEET_AGENT_ID env exports
+ * ahead of the claude command, so a bare `fleet done <agentId> --proof …` run
+ * INSIDE the worker resolves this fleet's registry (sessionId() prefers
+ * FLEET_SESSION). Without it, a worktree worker's git-toplevel hash derives a
+ * different (empty) session. Shared by spawn and grid.
+ */
+export function buildWorkerLaunchCommand(
+  agentId: string,
+  model: string,
+  task: string,
+  autostart: boolean,
+  mode: PermMode,
+): string {
+  const envPrefix = `FLEET_SESSION=${shellSingleQuote(sessionId())} FLEET_AGENT_ID=${agentId} `;
+  return envPrefix + buildClaudeCommand(model, task, autostart, mode);
+}
+
 /** Build the Claude Code launch command line for a worker. */
 export function buildClaudeCommand(model: string, task: string, autostart: boolean, mode: PermMode): string {
   const parts = ["claude"];
@@ -187,7 +214,7 @@ export function spawn(opts: SpawnOptions): Agent {
   // task baked into the launch line gets mangled by the shell's bracketed-paste
   // on boot; we send the task after the TUI is ready.
   const command = opts.launch
-    ? (opts.command ?? buildClaudeCommand(opts.model, "", false, opts.mode))
+    ? (opts.command ?? buildWorkerLaunchCommand(agentId, opts.model, "", false, opts.mode))
     : undefined;
 
   // Placement: group with same-project workers as split panes in one workspace
@@ -306,14 +333,31 @@ export function spawn(opts: SpawnOptions): Agent {
 
   // Dispatch the task once the TUI is ready (guarded against paste-collapse).
   // Skipped for --no-autostart and the raw --command override.
+  let dispatched = true;
   if (opts.launch && opts.autostart && opts.task && !opts.command) {
-    const task = worktree
-      ? `${opts.task}\n\n(You are working in an isolated git worktree on branch ${worktree.branch}. Commit your changes to this branch when you finish so they can be reviewed and merged.)`
-      : opts.task;
-    if (waitForClaudeReady(t)) submitToClaude(t, task);
+    const worktreeNote = worktree
+      ? `(You are working in an isolated git worktree on branch ${worktree.branch}. Commit your changes to this branch when you finish so they can be reviewed and merged.)\n\n`
+      : "";
+    // Engage the proof-of-work gate: every worker is told, concretely, how to
+    // attach proof when it finishes (B3 — the gate shipped but nothing invoked it).
+    const task = `${opts.task}\n\n${worktreeNote}${proofInstruction(agentId)}`;
+    if (waitForClaudeReady(t)) {
+      submitToClaude(t, task);
+    } else {
+      // Fail LOUDLY (S3): the worker is idling with no brief — recording it as
+      // a normal running spawn would leave the Captain believing it's working.
+      dispatched = false;
+      agent.status = "undispatched";
+      patch(agentId, { status: "undispatched" });
+      console.error(
+        `⚠ ${label} (${agentId}): Claude TUI never became ready — the task brief was NOT dispatched.\n` +
+          `  The worker has no work. Re-dispatch with: fleet send ${agentId} "<task>"`,
+      );
+    }
   }
 
-  // Trajectory store: record the delegation (Move 1). Best-effort.
+  // Trajectory store: record the delegation (Move 1). Best-effort. A failed
+  // dispatch is recorded as such, not as a successful delegation.
   appendOutcome({
     event: "spawn",
     agentId: agent.agentId,
@@ -323,6 +367,7 @@ export function spawn(opts: SpawnOptions): Agent {
     worktreeBranch: worktree?.branch,
     model: opts.model,
     mode: opts.mode,
+    ...(dispatched ? {} : { status: "undispatched" }),
   });
 
   return agent;

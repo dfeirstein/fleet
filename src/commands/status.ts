@@ -12,6 +12,7 @@ const ICON: Record<string, string> = {
   "awaiting-input": "◍",
   "blocked-on-you": "◍",
   "rate-limited": "⏳",
+  undispatched: "⚠",
   error: "✗",
   dead: "☠",
   unknown: "◌",
@@ -73,6 +74,11 @@ export function snapshot(): FleetRow[] {
     let status: string = a.status;
     if (!workspaceExists(handle(a))) {
       status = "dead";
+    } else if (a.status === "undispatched") {
+      // spawn never delivered the brief — the pane sits at an empty prompt the
+      // probe would misread as idle. Sticky until a real dispatch (`fleet send`
+      // patches status back to running).
+      status = "undispatched";
     } else {
       status = classifyLive({
         probe: probeStatus(target(a)).status,
@@ -116,7 +122,12 @@ export function renderTable(rows: FleetRow[]): string {
     const ws = r.workspace.padEnd(12);
     const model = r.model.padEnd(7);
     const st = r.status.padEnd(14);
-    const flag = r.proof === "none" ? "⚠ done (no proof) " : "";
+    const flag =
+      r.status === "undispatched"
+        ? "⚠ brief NOT dispatched — fleet send it "
+        : r.proof === "none"
+          ? "⚠ done (no proof) "
+          : "";
     const task = r.task.length > 50 ? r.task.slice(0, 47) + "..." : r.task;
     return `${icon} ${id} ${label} ${ws} ${model} ${st} ${flag}${task}`;
   });

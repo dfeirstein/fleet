@@ -36,6 +36,11 @@ fleet grid <cols>x<rows> [task...]              Tile ONE workspace into a grid o
 fleet read <agent> [--lines N] [--scrollback]   Capture a worker's screen
 fleet send <agent> <text...>                    Steer a worker (types text + Enter)
 fleet status                                    Snapshot fleet table
+fleet verify <agent> [--check <cmd>]            Independent eval gate (judge ≠ generator);
+                                                a PASSING check auto-attaches as a proof
+fleet done <agent> --proof <kind:ref> [--proof …]  Attach proof-of-work + run the gate
+                                                (test:<cmd> | file:<path>; note: is
+                                                metadata only — never satisfies the gate)
 fleet watch [--interval N] [--timeout N]        Block until the fleet is idle;
                                                 prints transitions + sidebar dash
 fleet kill <agent | --all>                      Stop a worker + clean up
@@ -66,8 +71,9 @@ Agents are matched by id, id-prefix, or label.
 3. **Monitor** with `fleet status` (shows ● running / ◉ idle / ◍ awaiting-input /
    ⏳ rate-limited / ✗ error). Read detail with `fleet read <agent>`.
 4. **Steer** mid-flight with `fleet send <agent> "<correction or follow-up>"`.
-5. **Collect** results when workers go idle, summarize for the user, then
-   `fleet kill` the finished workers (or `fleet kill --all` at the end).
+5. **Gate, then collect.** When workers go idle, run them through the proof
+   gate (see below) before treating anything as done; then summarize for the
+   user and `fleet kill` the finished workers (or `fleet kill --all` at the end).
 
 **Reasoning budget:** spend your turns deciding *how* to orchestrate, then hand
 off — if you've spent ~1–2 turns reading a codebase yourself without delegating,
@@ -77,9 +83,22 @@ routing, high only for ambiguous decomposition), not to doing the work.
 To wait for a wave, run `fleet watch` in the background (run_in_background): it
 prints status transitions, mirrors state to the cmux sidebar, and exits the
 moment no worker is still running — so you are notified when the wave is done
-instead of polling. Use `fleet status` for a one-off snapshot. A worker is done
-when its status reads `idle`; `awaiting-input` means it is blocked and needs you
-to `fleet send` an answer or approve in its pane.
+instead of polling. Use `fleet status` for a one-off snapshot. `awaiting-input`
+means a worker is blocked and needs you to `fleet send` an answer or approve in
+its pane; `undispatched` means spawn never delivered its brief — re-send it.
+
+**Done is proof-gated — idle alone is NOT done.** A worker is finished only
+when the proof gate passes (judge ≠ generator, fails closed):
+
+- Every spawn brief instructs the worker to attach proof when it finishes:
+  `fleet done <agentId> --proof test:'<verify cmd>'` (the worker's environment
+  carries `FLEET_SESSION`/`FLEET_AGENT_ID`, so the command resolves as-is).
+- `fleet status` flags any idle worker without proof: `⚠ done (no proof)`.
+  That flag means the gate has NOT passed — don't report the task complete.
+- **If the worker didn't attach proof, you attach it at digest-review time**:
+  run `fleet verify <agent> --check '<cmd>'` — a passing check is auto-attached
+  as a proof — or `fleet done <agent> --proof test:'…'`/`file:<path>` yourself.
+- `note:'…'` is metadata only; it never satisfies the gate (no self-cert).
 
 ## Project memory: CLAUDE.md + .claude-docs (keep workers current by default)
 

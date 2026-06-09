@@ -110,7 +110,8 @@ Commands:
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
-  verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator)
+  verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator;
+                                             a PASSING check auto-attaches as proof)
   done <agent> --proof <kind:ref> [--proof…] Attach proof-of-work + run the gate
         [--summary "<t>"]                    (test:<cmd>|file:<path>|note:<text>|…;
                                              fails closed — no/failed proof ≠ complete)
@@ -316,16 +317,18 @@ async function main(): Promise<void> {
         minScore: str(flags.min) ? Number(str(flags.min)) : undefined,
       });
       if (res.report) console.log(res.report.trimEnd());
-      if (res.currencyChecked) {
+      if (res.currencyState === "ok") {
         console.log(
           res.staleCurrency.length
             ? `\ncurrency: ${res.staleCurrency.length} fact(s) stale → run \`fleet currency\`: ${res.staleCurrency.slice(0, 8).join(", ")}${res.staleCurrency.length > 8 ? "…" : ""}`
             : `\ncurrency: all facts fresh`,
         );
-      } else {
-        console.log(`\ncurrency: no cache — run \`fleet currency\` to resolve versions/model-IDs`);
       }
+      // The gate contract stays visible: soft-pass cases are stated, and a FAIL
+      // always says why (inconclusive = FAIL — the gate fails closed).
+      for (const note of res.gateNotes) console.log(`\n${note}`);
       console.log(`\naudit-docs: ${res.pass ? "PASS" : "FAIL"}`);
+      for (const reason of res.failReasons) console.log(`  ✗ ${reason}`);
       if (!res.pass) process.exitCode = 1;
       break;
     }
