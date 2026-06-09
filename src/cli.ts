@@ -13,6 +13,7 @@ import { orchestrate, captainSplit } from "./commands/orchestrate.js";
 import { setup } from "./commands/setup.js";
 import { doctor } from "./commands/doctor.js";
 import { verify } from "./commands/verify.js";
+import { done } from "./commands/done.js";
 import { bootstrap } from "./commands/bootstrap.js";
 import { currency } from "./commands/currency.js";
 import { auditDocs } from "./commands/audit-docs.js";
@@ -61,6 +62,25 @@ function str(v: string | boolean | undefined): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+/** Collect every occurrence of a repeatable flag (`--proof a --proof b`), since
+ *  the base parser keeps only the last value. Handles `--flag v` and `--flag=v`. */
+function collectFlag(argv: string[], name: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i]!;
+    if (tok === name) {
+      const v = argv[i + 1];
+      if (v !== undefined && !v.startsWith("--")) {
+        out.push(v);
+        i++;
+      }
+    } else if (tok.startsWith(`${name}=`)) {
+      out.push(tok.slice(name.length + 1));
+    }
+  }
+  return out;
+}
+
 const HELP = `fleet — multi-agent orchestrator on cmux
 
 Usage: fleet <command> [options]
@@ -91,6 +111,9 @@ Commands:
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
   verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator)
+  done <agent> --proof <kind:ref> [--proof…] Attach proof-of-work + run the gate
+        [--summary "<t>"]                    (test:<cmd>|file:<path>|note:<text>|…;
+                                             fails closed — no/failed proof ≠ complete)
   bootstrap [--cwd P] [--force]              Give a project strong durable memory
                                              (CLAUDE.md + .claude-docs via a scribe)
   currency [--cwd P] [--force]               Resolve latest versions/model-IDs from
@@ -240,6 +263,17 @@ async function main(): Promise<void> {
       if (output) console.log(output);
       console.log(pass ? "PASS" : "FAIL");
       if (!pass) process.exitCode = 1;
+      break;
+    }
+    case "done": {
+      const agent = positionals[0];
+      if (!agent) return fail("done requires an <agent>");
+      const specs = collectFlag(rest, "--proof");
+      const { result, attached } = done(agent, specs, str(flags.summary));
+      console.log(`attached ${attached} proof(s)${result.proofRefs.length ? `: ${result.proofRefs.join(", ")}` : ""}`);
+      const mark = result.verdict === "complete" ? "✓" : result.verdict === "done-without-proof" ? "⚠" : "✗";
+      console.log(`${mark} ${result.verdict}${result.detail ? ` — ${result.detail}` : ""}`);
+      if (result.verdict !== "complete") process.exitCode = 1;
       break;
     }
     case "bootstrap": {

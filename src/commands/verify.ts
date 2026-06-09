@@ -42,6 +42,28 @@ function tail(text: string, lines = 25): string {
 }
 
 /**
+ * Run a check command in a directory and report pass/fail + tailed output. This
+ * is the independent runner (judge ≠ generator): the caller runs the command
+ * itself rather than trusting a worker's self-report. Shared by `fleet verify`
+ * and the proof gate (`gateProof`) so both grade through the same path.
+ */
+export function runCheck(dir: string, cmd: string): { pass: boolean; output: string } {
+  try {
+    const out = execSync(cmd, {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return { pass: true, output: tail(out) };
+  } catch (err) {
+    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
+    const combined = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
+    return { pass: false, output: tail(combined || e.message || "check failed") };
+  }
+}
+
+/**
  * Independently verify a worker's output by running a check in the worker's
  * directory — the agent's worktree if it has one, else its cwd.
  */
@@ -52,20 +74,7 @@ export function verify(idOrLabel: string, check?: string): { pass: boolean; outp
   const dir = agent.worktree?.path ?? agent.cwd;
   const cmd = check ?? defaultCheck(dir);
 
-  let result: { pass: boolean; output: string };
-  try {
-    const out = execSync(cmd, {
-      cwd: dir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    result = { pass: true, output: tail(out) };
-  } catch (err) {
-    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; message?: string };
-    const combined = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
-    result = { pass: false, output: tail(combined || e.message || "check failed") };
-  }
+  const result = runCheck(dir, cmd);
 
   // Trajectory store: record the independent eval verdict (Move 1). Best-effort.
   appendOutcome({
