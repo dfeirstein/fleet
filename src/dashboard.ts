@@ -9,6 +9,7 @@ const COLOR: Record<string, string> = {
   running: "#22c55e", // green
   idle: "#4C8DFF", // blue
   "awaiting-input": "#f59e0b", // amber — needs attention
+  "blocked-on-you": "#f59e0b", // amber — same lane as awaiting-input
   "rate-limited": "#f59e0b",
   error: "#ef4444", // red
   dead: "#ef4444",
@@ -19,6 +20,7 @@ const ICON: Record<string, string> = {
   running: "●",
   idle: "◉",
   "awaiting-input": "◍",
+  "blocked-on-you": "◍",
   "rate-limited": "⏳",
   error: "✗",
   dead: "☠",

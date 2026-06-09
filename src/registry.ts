@@ -10,8 +10,20 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { loadAllOrchestrators } from "./orchestrator-record.js";
+import type { ProofArtifact } from "./proof.js";
 
-export type AgentStatus = "running" | "idle" | "awaiting-input" | "error" | "rate-limited" | "unknown" | "dead";
+// `awaiting-input` is the screen-scrape fallback (y/n dialogs); `blocked-on-you`
+// is the event-sourced lane (feed pending question/permission/plan). Both render
+// into the SAME lane (icon/color) — the distinction is provenance, not display.
+export type AgentStatus =
+  | "running"
+  | "idle"
+  | "awaiting-input"
+  | "blocked-on-you"
+  | "error"
+  | "rate-limited"
+  | "unknown"
+  | "dead";
 
 export interface Agent {
   agentId: string;
@@ -29,6 +41,9 @@ export interface Agent {
   /** Set when the worker runs in an isolated git worktree. */
   worktree?: { path: string; branch: string; base: string; repo: string };
   status: AgentStatus;
+  /** Proof-of-work claims attached via `fleet done --proof` (untrusted until the
+   *  gate grades them — see src/proof.ts). */
+  proofs?: ProofArtifact[];
   spawnedAt: string; // ISO timestamp
   /** When the worker was last given work (spawn or send) — used to tell whether
    *  a "Completed" notification belongs to the current turn. */

@@ -3,7 +3,8 @@
 // Every fleet operation funnels through here so the rest of the codebase never
 // shells out to `cmux` directly. This is also the seam where a future tmux
 // backend would slot in (see plan).
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
 
 /** Resolve the cmux binary: explicit override → bundled path → PATH → app default. */
@@ -62,6 +63,86 @@ export function cmux(args: string[]): string {
 export function cmuxJson<T = unknown>(args: string[]): T {
   const raw = cmux(args);
   return JSON.parse(raw) as T;
+}
+
+// ── Event stream (the push trigger behind the event-driven Captain) ─────────
+// `cmux events` is a beta surface; both the event-driven daemon/watch and the
+// `blocked-on-you` lane HARD-gate on this capability and fall back to today's
+// poll path when it's absent. Per CLAUDE.md, the long-lived subprocess spawn
+// lives here in the seam — never a fresh spawn in a consumer.
+
+let cachedEventsSupported: boolean | undefined;
+
+/** True iff this cmux advertises the `events.stream` method (cached). Fail-safe:
+ *  any error resolving capabilities is treated as "unsupported" so consumers
+ *  degrade to polling rather than crash. */
+export function eventsSupported(): boolean {
+  if (cachedEventsSupported !== undefined) return cachedEventsSupported;
+  try {
+    const caps = cmuxJson<{ methods?: string[] }>(["capabilities"]);
+    cachedEventsSupported = Array.isArray(caps.methods) && caps.methods.includes("events.stream");
+  } catch {
+    cachedEventsSupported = false;
+  }
+  return cachedEventsSupported;
+}
+
+export interface EventStreamHandle {
+  stop(): void;
+}
+
+/**
+ * Subscribe to the cmux event stream (NDJSON), dispatching ack vs event frames.
+ * cmux's `--reconnect` resumes from the last received sequence on a drop; the
+ * optional `--cursor-file` makes the cursor durable across daemon restarts.
+ * `onExit` lets a caller restart on a hard process death. Heartbeat frames are
+ * suppressed (`--no-heartbeat`); the ack is kept (gap detection needs it).
+ */
+export function streamEvents(opts: {
+  categories?: string[];
+  names?: string[];
+  cursorFile?: string;
+  reconnect?: boolean;
+  onAck?: (ack: unknown) => void;
+  onFrame: (frame: unknown) => void;
+  onExit?: (code: number | null) => void;
+}): EventStreamHandle {
+  const args = ["events", "--no-heartbeat"];
+  if (opts.reconnect !== false) args.push("--reconnect");
+  if (opts.cursorFile) args.push("--cursor-file", opts.cursorFile);
+  for (const c of opts.categories ?? []) args.push("--category", c);
+  for (const n of opts.names ?? []) args.push("--name", n);
+
+  const child = spawn(CMUX_BIN, args, {
+    env: { ...process.env, CMUX_QUIET: "1" },
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+
+  if (child.stdout) {
+    createInterface({ input: child.stdout }).on("line", (line) => {
+      const t = line.trim();
+      if (!t) return;
+      let parsed: { type?: string };
+      try {
+        parsed = JSON.parse(t) as { type?: string };
+      } catch {
+        return; // a torn line — skip
+      }
+      if (parsed.type === "ack") opts.onAck?.(parsed);
+      else if (parsed.type === "event") opts.onFrame(parsed);
+    });
+  }
+  child.on("exit", (code) => opts.onExit?.(code));
+
+  return {
+    stop() {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+    },
+  };
 }
 
 /**

@@ -36,6 +36,12 @@ export interface OutcomeRecord {
   status?: string;
   /** complete: where the wave digest wrote the worker's raw output (recall handle). */
   wavePath?: string;
+  /** Proof gate verdict (Feature 3): verified = passed; missing = no proof
+   *  attached; failed = a proof failed/inconclusive. `complete` events are only
+   *  written when the gate passes — a non-verified done never logs as complete. */
+  proof?: "verified" | "missing" | "failed";
+  /** The proof claims (`kind:ref`) the gate graded. */
+  proofRefs?: string[];
   /** Reserved: distilled lesson from a wave digest (Move 2 enriches this). */
   lessons?: string;
 }

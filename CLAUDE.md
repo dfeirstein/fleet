@@ -45,8 +45,10 @@ npm run typecheck         # tsc --noEmit — the one automated gate, keep it gre
 fleet audit-docs          # eval gate: score CLAUDE.md + flag stale currency (fails closed)
 fleet currency            # refresh .claude-docs/versions.md from npm/PyPI registries
 ```
-There is **no test runner** — verify by typecheck + running the CLI. See
-`.claude-docs/verification.md`.
+There is **no test runner EXCEPT `node:test`** for pure logic modules (the event
+classifier `frameToSignal`, the proof gate `gateProof`) — run with `npm test`
+(`node --import tsx --test`); everything else verifies by typecheck + CLI + live
+E2E. See `.claude-docs/verification.md`.
 
 ### Before Submitting
 1. `npm run typecheck` passes.

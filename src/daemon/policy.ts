@@ -49,6 +49,9 @@ export interface AgentSignal {
   label: string;
   status: string;
   stuckMs: number; // how long a "running" worker's screen has been unchanged
+  /** Feature 3: the worker is idle (done candidate) but attached no proof. A
+   *  cheap registry check — the runnable gate lives in `fleet done`/`digest`. */
+  doneNoProof?: boolean;
 }
 
 export interface DaemonMsg {
@@ -67,10 +70,10 @@ export function evaluate(
   let urgent = false;
   let text = "";
 
-  if (sig.status === "awaiting-input") {
+  if (sig.status === "awaiting-input" || sig.status === "blocked-on-you") {
     cond = "awaiting";
     urgent = true;
-    text = `${sig.label} is awaiting input — needs a decision.`;
+    text = `${sig.label} is blocked on you — needs a decision.`;
   } else if (sig.status === "error") {
     cond = "error";
     urgent = true;
@@ -83,6 +86,10 @@ export function evaluate(
     cond = "stuck";
     urgent = true;
     text = `${sig.label} looks stuck — no output for ~${Math.round(sig.stuckMs / 60000)}m.`;
+  } else if (sig.doneNoProof) {
+    cond = "noproof";
+    urgent = false; // a nag, not an interrupt
+    text = `${sig.label} idled without proof — attach one (\`fleet done ${sig.label} --proof <kind:ref>\`) or verify before logging it complete.`;
   }
 
   if (!cond) {
