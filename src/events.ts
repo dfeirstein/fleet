@@ -309,6 +309,14 @@ export class FleetEventReactor {
   }
 
   private enrichNotifications(target?: string): void {
+    // ⚠ WORKSPACE-keyed attribution — this re-imports bug B1 for any consumer
+    // of reactor STATE: same-project workers share one workspace as split
+    // panes, so one sibling's "Completed" marks every sibling idle here.
+    // Today that's harmless because daemon/watch use the reactor only as a
+    // reconcile TRIGGER (snapshot() re-classifies with surface-keyed
+    // attribution + probe precedence). If you ever read getState()/allStates()
+    // as truth, switch this to surface-keyed attribution first (see
+    // indexNotifications/notificationFor in src/notifications.ts).
     const latest = latestByWorkspace(this.deps.listNotifications());
     const workspaces = target ? [target] : [...latest.keys()];
     for (const ws of workspaces) {

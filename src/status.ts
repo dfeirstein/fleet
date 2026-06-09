@@ -12,14 +12,16 @@ const ERROR = /(error:|fatal|panic|uncaught|command not found|permission denied)
 const AWAITING =
   /(\(y\/n\)|❯\s*1\.|do you want to proceed|allow this|bypass permissions mode\b.*\n|no, exit)/i;
 // Claude is actively working: the interrupt hint, an elapsed timer ("(34s ·",
-// "(12m 11s ·" — minute/hour forms included), or a spinner glyph followed by a
-// gerund verb AND a timer on the same line ("✶ Razzmatazzing… 12m 11s").
-// Claude Code's spinner verbs are open-ended, so this is structural (glyph +
-// any *ing word + timer), not a verb whitelist. Deliberately NOT matching bare
-// words like "running" — the dev-server status line ("1 shell still running")
-// would false-positive.
+// "(12m 11s ·" — minute/hour forms included), or a spinner line: a glyph at
+// line START + a gerund verb with a MANDATORY ellipsis + a timer ("✶
+// Razzmatazzing… 12m 11s"). Claude Code's spinner verbs are open-ended, so
+// this is structural, not a verb whitelist — but the anchor and the ellipsis
+// are load-bearing: summary prose like "* Updating the config took 12s" or
+// "· Building finished in 32s" must NOT classify running (a false `running`
+// is sticky post-B1: it beats turn-end notifications). Same reason for not
+// matching bare words like "running" ("1 shell still running").
 const WORKING =
-  /(esc to interrupt|\(\s*(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·|[✶✻✢✳✽◐◓◑◒·*]\s*\w+ing(?:…|\.{3})?[^\n]*?\b(?:\d+h\s*)?(?:\d+m\s*)?\d+s\b|…\s*\(\d+)/i;
+  /(esc to interrupt|\(\s*(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·|^\s*[✶✻✢✳✽◐◓◑◒·*]\s*\w+ing(?:…|\.{3})[^\n]*?\b(?:\d+h\s*)?(?:\d+m\s*)?\d+s\b|…\s*\(\d+)/im;
 // An idle Claude Code TUI presents its prompt box waiting for input.
 const IDLE_PROMPT = /(❯\s*$|\?\s*for shortcuts|bypass permissions on|auto mode on|accept edits on)/im;
 
