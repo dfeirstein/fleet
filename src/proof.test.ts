@@ -91,6 +91,16 @@ test("parseProof: validates kind + shape", () => {
   assert.throws(() => parseProof("noseparator"), /<kind:ref>/);
 });
 
+test("parseProof: rejects no-op runnable proofs (no self-cert via test:true)", () => {
+  assert.throws(() => parseProof("test:true"), /no-op/);
+  assert.throws(() => parseProof("command:exit 0"), /no-op/);
+  assert.throws(() => parseProof("lint::"), /no-op/);
+  assert.throws(() => parseProof("command: TRUE ;"), /no-op/); // normalized
+  // A real check is fine; `note:true` is fine (notes aren't runnable, just metadata).
+  assert.equal(parseProof("test:npm test").kind, "test");
+  assert.equal(parseProof("note:true").ref, "true");
+});
+
 test("proofState maps verdict → compact outcome state", () => {
   assert.equal(proofState("complete"), "verified");
   assert.equal(proofState("done-without-proof"), "missing");

@@ -41,6 +41,18 @@ const RUNNABLE: ReadonlySet<ProofKind> = new Set(["test", "lint", "curl", "comma
 const STATIC_FILE: ReadonlySet<ProofKind> = new Set(["diff", "file", "visual"]);
 const ALL_KINDS: ProofKind[] = ["diff", "test", "lint", "curl", "visual", "file", "command", "note"];
 
+// Commands that exit 0 while proving nothing — the laziest self-certification
+// (`fleet done --proof test:true`). A runnable proof must actually exercise the
+// work, so these are rejected at attach time. This is a no-op guard, not a
+// relevance judge: `command:` stays an escape hatch the gate runs but cannot judge
+// for semantic relevance, so a determined no-op (`command:echo ok`) still slips —
+// the guard only blocks the obvious cases.
+const TRIVIAL_RUNNABLE: ReadonlySet<string> = new Set(["true", ":", "exit", "exit 0", "echo", "echo ok"]);
+
+function normalizeCmd(ref: string): string {
+  return ref.trim().toLowerCase().replace(/;+\s*$/, "").replace(/\s+/g, " ").trim();
+}
+
 /** Parse a `<kind:ref>` spec into a (claimed, untrusted) proof artifact. */
 export function parseProof(spec: string): ProofArtifact {
   const idx = spec.indexOf(":");
@@ -49,6 +61,12 @@ export function parseProof(spec: string): ProofArtifact {
   const ref = spec.slice(idx + 1);
   if (!ALL_KINDS.includes(kind)) throw new Error(`unknown proof kind "${kind}" (use ${ALL_KINDS.join("|")})`);
   if (!ref.trim()) throw new Error(`proof "${spec}" has an empty ref`);
+  if (RUNNABLE.has(kind) && TRIVIAL_RUNNABLE.has(normalizeCmd(ref))) {
+    throw new Error(
+      `proof "${spec}" is a no-op that proves nothing — attach a real check ` +
+        `(e.g. test:'npm test', command:'./verify.sh') or a file: artifact`,
+    );
+  }
   return { kind, ref, attachedAt: new Date().toISOString() };
 }
 

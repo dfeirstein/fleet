@@ -52,11 +52,14 @@ gate **fails closed**.
 - `digest`'s done-detection routes idle workers through this gate before recording
   `complete` to the outcome log — "idle" alone is no longer "done".
 
-### Known non-blocking follow-ups (from review, not yet fixed)
-- Runnable proof validates only exit code, not relevance — `test:true` / `command:exit 0`
-  passes (`proof.ts` ~96-99, `verify.ts` ~50-58).
-- `digest` re-runs runnable proofs each wave → duplicate `complete` rows; consider dedup.
-
-`runCheck` (`verify.ts`) caps every check at a 5-min timeout (`killSignal: SIGKILL`); a
-check that exceeds it is killed and treated as FAIL (fail closed) — a hanging proof can
-never stall `fleet done`/`digest`.
+### Gate hardening (shipped)
+- `runCheck` (`verify.ts`) caps every check at a 5-min timeout (`killSignal: SIGKILL`);
+  a check that exceeds it is killed and treated as FAIL — a hanging proof can never stall
+  `fleet done`/`digest`.
+- `parseProof` rejects obvious **no-op runnable proofs** (`test:true`, `command:exit 0`,
+  `lint::`) at attach time — blocks the laziest self-cert. This is a no-op guard, NOT a
+  relevance judge: `command:` is an inherent escape hatch the gate runs but cannot judge
+  for semantic relevance, so a determined no-op (`command:echo ok && true`) still slips.
+- `digest` finalizes a terminal worker **once** (`Agent.finalizedAt`/`finalProof`): it
+  re-runs the gate + logs `complete` a single time, not on every digest. A re-dispatch
+  (`lastDispatchAt` advances past `finalizedAt`) clears it and re-gates.

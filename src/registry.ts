@@ -44,6 +44,13 @@ export interface Agent {
   /** Proof-of-work claims attached via `fleet done --proof` (untrusted until the
    *  gate grades them — see src/proof.ts). */
   proofs?: ProofArtifact[];
+  /** Set by `digest` when the proof gate has recorded a terminal outcome for the
+   *  worker's current turn (ISO). Stops re-running proofs + re-logging `complete`
+   *  on every digest. Stale once `lastDispatchAt` passes it → the worker re-gates. */
+  finalizedAt?: string;
+  /** The proof-gate verdict captured at finalize, reused for digest display so a
+   *  re-digest doesn't re-run runnable checks. */
+  finalProof?: "verified" | "missing" | "failed";
   spawnedAt: string; // ISO timestamp
   /** When the worker was last given work (spawn or send) — used to tell whether
    *  a "Completed" notification belongs to the current turn. */

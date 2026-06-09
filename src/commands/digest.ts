@@ -9,7 +9,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readScreen } from "../cmux.js";
-import { listAgents, target, type Agent } from "../registry.js";
+import { listAgents, patch, target, type Agent } from "../registry.js";
 import { CLAUDE_DOCS_DIR } from "../project-memory.js";
 import { appendOutcome } from "../outcomes.js";
 import { gateAgentProof, proofState } from "../proof.js";
@@ -78,12 +78,19 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
     // its proof state but NEVER as a clean completion ("idle == done" is dead).
     const terminal = a.status === "idle" || a.status === "dead" || a.status === "error";
     let proof: "verified" | "missing" | "failed" | undefined;
-    if (terminal) {
+    // Dedup: once the gate has recorded a terminal outcome for this turn, don't
+    // re-run runnable proofs or re-log on subsequent digests. A re-dispatch
+    // (lastDispatchAt advances past finalizedAt) clears this and re-gates.
+    const alreadyFinal = a.finalizedAt !== undefined && a.finalizedAt >= a.lastDispatchAt;
+    if (terminal && alreadyFinal) {
+      proof = a.finalProof;
+    } else if (terminal) {
       const gate =
         a.status === "idle"
           ? gateAgentProof(a)
           : { verdict: "proof-failed" as const, proofRefs: (a.proofs ?? []).map((p) => `${p.kind}:${p.ref}`) };
       proof = proofState(gate.verdict);
+      patch(a.agentId, { finalizedAt: new Date().toISOString(), finalProof: proof });
       if (gate.verdict === "complete") {
         appendOutcome({
           event: "complete",
