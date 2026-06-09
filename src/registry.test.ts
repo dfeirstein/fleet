@@ -84,7 +84,7 @@ test("release does not remove a lock owned by someone else", () => {
   assert.equal(existsSync(lockPath()), true);
 });
 
-test("patch preserves unrelated fields across writers (the S1 lost update)", () => {
+test("sequential patches preserve unrelated fields (the S1 lost-update shape)", () => {
   upsert(agent({ proofs: [{ kind: "test", ref: "npm test", attachedAt: "2026-06-09T01:00:00.000Z" }] }));
   // Writer A: daemon status beat. Writer B: send() dispatch stamp.
   patch("a1", { status: "idle", lastSeen: "2026-06-09T02:00:00.000Z" });

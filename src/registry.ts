@@ -212,6 +212,10 @@ interface LockOptions {
  * wait budget runs out, breaking the lock when its holder is provably dead
  * (pid gone) or it has outlived the stale threshold. Returns true iff acquired;
  * false means the budget was exhausted under live contention.
+ *
+ * Stale-breaking is best-effort, not atomic: two waiters can both judge a lock
+ * stale, both rm + recreate, and both "win". The failure mode is one lost
+ * update — exactly the pre-lock behavior, at far lower probability — accepted.
  */
 export function acquireRegistryLock(lockPath: string, opts: LockOptions = {}): boolean {
   const retryMs = opts.retryMs ?? LOCK_RETRY_MS;
@@ -292,6 +296,11 @@ function mutate(fn: (reg: RegistryFile) => void): void {
   // Captain/daemon: worst case degrades to the old (pre-lock) behavior, and the
   // tmp+rename write still prevents corruption.
   const locked = acquireRegistryLock(lock);
+  if (!locked) {
+    console.error(
+      `fleet registry: lock wait budget exhausted for session ${sessionId()} (${lock}) — proceeding unlocked`,
+    );
+  }
   try {
     const reg = load();
     fn(reg);
