@@ -77,44 +77,45 @@ function checkStaticFile(ref: string, dir: string): { ok: boolean; reason: strin
 }
 
 /**
- * Grade a set of proof claims. Fail-closed: any failing/inconclusive proof, or
- * none present, resolves to a non-complete verdict — only when every attached
- * proof passes/exists do we return `complete`.
+ * Grade a set of proof claims. Fail-closed and judge ≠ generator:
+ *   - `note:` is METADATA ONLY — a worker's free text can never self-certify, so
+ *     a note never counts toward `complete`. If the only proof(s) attached are
+ *     notes (or none), the verdict is `done-without-proof` (flagged, NOT complete).
+ *   - A `complete` verdict requires ≥1 CHECKABLE proof — a runnable check that
+ *     exits 0, or a static file that is present/non-empty/readable — and EVERY
+ *     checkable proof must pass; any failure → `proof-failed`.
+ * A note may ACCOMPANY a checkable proof (as a label) but can never stand alone.
  */
 export function gateProof(proofs: ProofArtifact[] | undefined, ctx: GateContext): GateResult {
   const list = proofs ?? [];
   const proofRefs = list.map((p) => `${p.kind}:${p.ref}`);
-  if (list.length === 0) {
-    return { verdict: "done-without-proof", detail: "no proof attached", proofRefs };
+
+  // Notes are not checkable — only runnable + static-file proofs gate "done".
+  const checkable = list.filter((p) => RUNNABLE.has(p.kind) || STATIC_FILE.has(p.kind));
+  if (checkable.length === 0) {
+    return {
+      verdict: "done-without-proof",
+      detail: list.length > 0 ? "only note(s) attached — no checkable proof" : "no proof attached",
+      proofRefs,
+    };
   }
 
   const run = ctx.runCheck ?? runCheck;
   const failures: string[] = [];
-  let anyUsable = false;
-
-  for (const p of list) {
+  for (const p of checkable) {
     if (RUNNABLE.has(p.kind)) {
       const { pass, output } = run(ctx.dir, p.ref);
-      if (pass) anyUsable = true;
-      else failures.push(`${p.kind}:${p.ref} → ${firstLine(output) || "failed"}`);
-    } else if (STATIC_FILE.has(p.kind)) {
-      const r = checkStaticFile(p.ref, ctx.dir);
-      if (r.ok) anyUsable = true;
-      else failures.push(`${p.kind}:${p.ref} → ${r.reason}`);
+      if (!pass) failures.push(`${p.kind}:${p.ref} → ${firstLine(output) || "failed"}`);
     } else {
-      // note: present iff non-empty text.
-      if (p.ref.trim()) anyUsable = true;
-      else failures.push(`note → empty`);
+      const r = checkStaticFile(p.ref, ctx.dir);
+      if (!r.ok) failures.push(`${p.kind}:${p.ref} → ${r.reason}`);
     }
   }
 
   if (failures.length > 0) {
     return { verdict: "proof-failed", detail: failures.join("; "), proofRefs };
   }
-  if (!anyUsable) {
-    return { verdict: "proof-failed", detail: "no usable proof", proofRefs };
-  }
-  return { verdict: "complete", detail: `${list.length} proof(s) verified`, proofRefs };
+  return { verdict: "complete", detail: `${checkable.length} proof(s) verified`, proofRefs };
 }
 
 /** Convenience: gate a worker using its worktree/cwd as the run dir. */

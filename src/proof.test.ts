@@ -55,9 +55,24 @@ test("static file empty → proof-failed", () => {
   assert.match(r.detail, /empty/);
 });
 
-test("note present → complete; empty note rejected at parse", () => {
-  assert.equal(gateProof([artifact("note", "verified manually in staging")], { dir: "/x" }).verdict, "complete");
+test("note ALONE is never sufficient → done-without-proof (judge ≠ generator)", () => {
+  // A worker's free text can't self-certify; a note-only set is treated exactly
+  // like no proof at all (the flagged, NOT-complete state).
+  const r = gateProof([artifact("note", "trust me — I checked it manually")], { dir: "/x" });
+  assert.equal(r.verdict, "done-without-proof");
+  assert.match(r.detail, /only note/);
   assert.throws(() => parseProof("note:"), /empty ref/);
+});
+
+test("note ACCOMPANYING a passing checkable proof → complete (note is a label)", () => {
+  const r = gateProof([artifact("note", "ran locally"), artifact("test", "npm run typecheck")], pass);
+  assert.equal(r.verdict, "complete");
+  assert.deepEqual(r.proofRefs, ["note:ran locally", "test:npm run typecheck"]);
+});
+
+test("note accompanying a FAILING checkable proof → proof-failed", () => {
+  const r = gateProof([artifact("note", "should be fine"), artifact("test", "npm test")], failRun);
+  assert.equal(r.verdict, "proof-failed");
 });
 
 test("mixed proofs: one failure fails the whole gate (fail closed)", () => {
