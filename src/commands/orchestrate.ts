@@ -92,7 +92,9 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
   // re-applies the (possibly updated) doctrine system prompt on top of it. Use it
   // to adopt new doctrine mid-life; the prior workspace should be closed after.
   const cont = opts.resume ? "--continue " : "";
-  const command = `FLEET_SESSION=${session} claude ${cont}--append-system-prompt-file '${promptPath}'`;
+  // Every Captain launches with Remote Control on, named for its session, so the
+  // user can talk to any Captain (yoshi, yoshi-2, …) from the Claude mobile app.
+  const command = `FLEET_SESSION=${session} claude --remote-control '${session}' ${cont}--append-system-prompt-file '${promptPath}'`;
 
   // When resuming, close the previous Captain workspace FIRST so its process
   // releases the conversation file — `claude --continue` must be the only process
@@ -216,7 +218,8 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
   waitForTerminal(target);
   const promptPath = writePromptFile(newName, newSession);
   const command =
-    opts.command ?? `FLEET_SESSION=${newSession} claude --append-system-prompt-file '${promptPath}'`;
+    opts.command ??
+    `FLEET_SESSION=${newSession} claude --remote-control '${newSession}' --append-system-prompt-file '${promptPath}'`;
   submit(target, command);
 
   // Badge just this pane (siblings share the workspace, so don't badge the whole
