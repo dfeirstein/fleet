@@ -14,7 +14,11 @@ the user's Max plan.
   - `src/cli.ts` — arg parse → command dispatch (the only switch)
   - `src/cmux.ts` — **the only place that shells out to cmux** (typed wrapper)
   - `src/commands/` — spawn, grid, read, send, status, watch, kill, resume, verify, bootstrap, currency, audit-docs, capture, objective, daemon, notify, doctor, setup, orchestrate
-  - `src/daemon/` — always-on heartbeat supervisor (config, inbox, channel, policy, loop)
+  - `src/daemon/` — always-on heartbeat supervisor (config, inbox, channel, policy, loop).
+    **ONE shared daemon** watches ALL live Captains in a quadrant (`loadAllOrchestrators` + a
+    `~/.fleet/daemon.pid` single-instance lock); `captain --split` calls `ensureSharedDaemon()` and
+    NEVER spawns a per-Captain daemon. Note: `fleet daemon start` returns before the new pane's PTY
+    boots, so an immediate `daemon status` may say "not running" for ~2-3s — it's a boot race, not down.
   - `src/registry.ts` / `project-memory.ts` / `status.ts` / `notifications.ts` — state, memory paths, classifier, turn-end signal
   - `skills/fleet/` — `SKILL.md` + `orchestrator-doctrine.md` (teach a Captain the loop)
 
