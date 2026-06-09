@@ -147,6 +147,33 @@ export function acceptBypassDialog(target: Target): boolean {
   return false;
 }
 
+/**
+ * The proof-gate instruction appended to every dispatched brief (B3): tells the
+ * worker, with its concrete agent id, how to attach proof when it finishes.
+ * Shared by spawn (post-ready dispatch) and grid (task baked into the launch line).
+ */
+export function proofInstruction(agentId: string): string {
+  return `(When you finish, prove it: run \`fleet done ${agentId} --proof test:'<command that verifies your work>'\` — or --proof file:<path> for a produced artifact. A note:'…' proof is metadata only and never satisfies the gate. FLEET_SESSION and FLEET_AGENT_ID are exported in your environment, so the command works as-is.)`;
+}
+
+/**
+ * The full launch line for a worker: FLEET_SESSION + FLEET_AGENT_ID env exports
+ * ahead of the claude command, so a bare `fleet done <agentId> --proof …` run
+ * INSIDE the worker resolves this fleet's registry (sessionId() prefers
+ * FLEET_SESSION). Without it, a worktree worker's git-toplevel hash derives a
+ * different (empty) session. Shared by spawn and grid.
+ */
+export function buildWorkerLaunchCommand(
+  agentId: string,
+  model: string,
+  task: string,
+  autostart: boolean,
+  mode: PermMode,
+): string {
+  const envPrefix = `FLEET_SESSION=${shellSingleQuote(sessionId())} FLEET_AGENT_ID=${agentId} `;
+  return envPrefix + buildClaudeCommand(model, task, autostart, mode);
+}
+
 /** Build the Claude Code launch command line for a worker. */
 export function buildClaudeCommand(model: string, task: string, autostart: boolean, mode: PermMode): string {
   const parts = ["claude"];
@@ -186,14 +213,8 @@ export function spawn(opts: SpawnOptions): Agent {
   // Launch a SHORT claude command (no task) so it reliably runs via cmux. A long
   // task baked into the launch line gets mangled by the shell's bracketed-paste
   // on boot; we send the task after the TUI is ready.
-  //
-  // Export FLEET_SESSION + FLEET_AGENT_ID into the worker's environment so a
-  // bare `fleet done <agentId> --proof …` run INSIDE the worker resolves this
-  // fleet's registry (sessionId() prefers FLEET_SESSION). Without it, a
-  // worktree worker's git-toplevel hash derives a different (empty) session.
-  const envPrefix = `FLEET_SESSION=${shellSingleQuote(sessionId())} FLEET_AGENT_ID=${agentId} `;
   const command = opts.launch
-    ? (opts.command ?? envPrefix + buildClaudeCommand(opts.model, "", false, opts.mode))
+    ? (opts.command ?? buildWorkerLaunchCommand(agentId, opts.model, "", false, opts.mode))
     : undefined;
 
   // Placement: group with same-project workers as split panes in one workspace
@@ -319,8 +340,7 @@ export function spawn(opts: SpawnOptions): Agent {
       : "";
     // Engage the proof-of-work gate: every worker is told, concretely, how to
     // attach proof when it finishes (B3 — the gate shipped but nothing invoked it).
-    const proofNote = `(When you finish, prove it: run \`fleet done ${agentId} --proof test:'<command that verifies your work>'\` — or --proof file:<path> for a produced artifact. A note:'…' proof is metadata only and never satisfies the gate. FLEET_SESSION and FLEET_AGENT_ID are exported in your environment, so the command works as-is.)`;
-    const task = `${opts.task}\n\n${worktreeNote}${proofNote}`;
+    const task = `${opts.task}\n\n${worktreeNote}${proofInstruction(agentId)}`;
     if (waitForClaudeReady(t)) {
       submitToClaude(t, task);
     } else {
