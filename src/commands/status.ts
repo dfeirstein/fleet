@@ -1,9 +1,9 @@
 // `fleet status` — the Fleet Dashboard. Merges the registry with a live cmux
 // read so the orchestrator sees real state, not just what it last recorded.
-import { listAgents, patch, handle, target, type Agent } from "../registry.js";
+import { listAgents, patch, handle, target, type Agent, type AgentStatus } from "../registry.js";
 import { workspaceExists } from "../cmux.js";
 import { probeStatus } from "../status.js";
-import { listNotifications, latestByWorkspace, turnEnded } from "../notifications.js";
+import { listNotifications, indexNotifications, notificationFor, turnEnded, type CmuxNotification } from "../notifications.js";
 import { pendingBlocks, type PendingBlock } from "../events.js";
 
 const ICON: Record<string, string> = {
@@ -28,6 +28,33 @@ export interface FleetRow {
   /** Cheap proof flag for the done-without-proof diagnostic (no gate execution):
    *  "none" = idle with nothing attached; "claimed" = idle with proof(s). */
   proof?: "none" | "claimed";
+  /** When the worker was last given work — the stable-idle dwell (watch/daemon)
+   *  refuses to declare quiescence while any dispatch is this fresh. */
+  lastDispatchAt: string;
+}
+
+/**
+ * Pure classification of one live worker (the unit-tested core of snapshot()).
+ * Precedence: a screen rate-limit/error wins (no clean event exists); else a
+ * feed-confirmed block → blocked-on-you; else a screen y/n dialog →
+ * awaiting-input; else a LIVE SPINNER → running — the screen is direct evidence
+ * the worker is mid-turn, so it beats any turn-end notification (which may be a
+ * sibling pane's broadcast or a stale frame — B1); else a fresh turn-end
+ * notification → idle; else whatever the screen says.
+ */
+export function classifyLive(input: {
+  probe: AgentStatus;
+  hasBlock: boolean;
+  notif: CmuxNotification | undefined;
+  lastDispatchAt: string;
+}): AgentStatus {
+  const { probe, hasBlock, notif, lastDispatchAt } = input;
+  if (probe === "rate-limited" || probe === "error") return probe;
+  if (hasBlock) return "blocked-on-you";
+  if (probe === "awaiting-input") return "awaiting-input";
+  if (probe === "running") return "running";
+  if (turnEnded(notif, lastDispatchAt)) return "idle";
+  return probe;
 }
 
 /** Reconcile + classify every agent. Updates the registry as a side effect.
@@ -35,7 +62,8 @@ export interface FleetRow {
  *  deterministic "turn finished" signal), falling back to the screen heuristic. */
 export function snapshot(): FleetRow[] {
   const rows: FleetRow[] = [];
-  const notifs = latestByWorkspace(listNotifications());
+  // Surface-keyed so a sibling pane's "Completed" can't be attributed here (B1).
+  const notifs = indexNotifications(listNotifications());
   // The event-sourced blocked-on-you lane: feed pending question/permission/plan
   // items, attributed to a worker by cwd (the one-shot reconcile has no session
   // map). Empty/unsupported cmux → [] → the screen heuristic's awaiting-input
@@ -46,17 +74,12 @@ export function snapshot(): FleetRow[] {
     if (!workspaceExists(handle(a))) {
       status = "dead";
     } else {
-      // Precedence: a screen rate-limit/error wins (no clean event exists); else
-      // a feed-confirmed block → blocked-on-you; else a screen y/n dialog →
-      // awaiting-input; else a fresh turn-end notification → idle; else screen.
-      const probe = probeStatus(target(a)).status;
-      const wsId = a.workspaceId ?? a.workspace;
-      const screenAttention = probe === "rate-limited" || probe === "error";
-      if (screenAttention) status = probe;
-      else if (agentHasBlock(a, blocks)) status = "blocked-on-you";
-      else if (probe === "awaiting-input") status = "awaiting-input";
-      else if (turnEnded(notifs.get(wsId), a.lastDispatchAt)) status = "idle";
-      else status = probe;
+      status = classifyLive({
+        probe: probeStatus(target(a)).status,
+        hasBlock: agentHasBlock(a, blocks),
+        notif: notificationFor(notifs, a.surfaceId, a.workspaceId ?? a.workspace),
+        lastDispatchAt: a.lastDispatchAt,
+      });
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });
     // Done-without-proof diagnostic: an idle worker that attached no proof hasn't
@@ -72,6 +95,7 @@ export function snapshot(): FleetRow[] {
       status,
       task: a.task,
       proof,
+      lastDispatchAt: a.lastDispatchAt,
     });
   }
   return rows;

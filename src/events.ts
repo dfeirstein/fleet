@@ -18,7 +18,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { cmuxJson } from "./cmux.js";
-import { listNotifications, latestByWorkspace, type CmuxNotification } from "./notifications.js";
+import { listNotifications, latestByWorkspace, TURN_END, type CmuxNotification } from "./notifications.js";
 import type { AgentStatus } from "./registry.js";
 
 export type { CmuxNotification } from "./notifications.js";
@@ -97,7 +97,7 @@ export type Observation =
 // ENDED → idle. Blocked-on-you is sourced from the FEED (a pending question/
 // permission/plan), NOT the notification: Claude fires "Waiting" at every
 // turn-end, not only when truly blocked, so the notification can't distinguish.
-const TURN_END = /complete|done|finish|wait|idle|ready/i;
+// The phrase list itself (TURN_END) is shared with src/notifications.ts.
 
 const BLOCK_KINDS: Record<string, BlockedKind> = {
   question: "question",

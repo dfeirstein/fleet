@@ -11,11 +11,15 @@ const ERROR = /(error:|fatal|panic|uncaught|command not found|permission denied)
 // A blocking yes/no permission or choice dialog (including the bypass warning).
 const AWAITING =
   /(\(y\/n\)|❯\s*1\.|do you want to proceed|allow this|bypass permissions mode\b.*\n|no, exit)/i;
-// Claude is actively working: a live spinner line with an elapsed timer, or the
-// interrupt hint. Deliberately NOT matching generic words like "running" —
-// the dev-server status line ("1 shell still running") would false-positive.
+// Claude is actively working: the interrupt hint, an elapsed timer ("(34s ·",
+// "(12m 11s ·" — minute/hour forms included), or a spinner glyph followed by a
+// gerund verb AND a timer on the same line ("✶ Razzmatazzing… 12m 11s").
+// Claude Code's spinner verbs are open-ended, so this is structural (glyph +
+// any *ing word + timer), not a verb whitelist. Deliberately NOT matching bare
+// words like "running" — the dev-server status line ("1 shell still running")
+// would false-positive.
 const WORKING =
-  /(esc to interrupt|\(\d+s\s*·|[✶✻✢✳✽◐◓◑◒·]\s*(Generating|Thinking|Cogitat|Spelunk|Philosophis|Forging|Synthes|Pondering|Working|Brewing|Cooking|Reticulat|Crunching|Noodling)|…\s*\(\d+)/i;
+  /(esc to interrupt|\(\s*(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·|[✶✻✢✳✽◐◓◑◒·*]\s*\w+ing(?:…|\.{3})?[^\n]*?\b(?:\d+h\s*)?(?:\d+m\s*)?\d+s\b|…\s*\(\d+)/i;
 // An idle Claude Code TUI presents its prompt box waiting for input.
 const IDLE_PROMPT = /(❯\s*$|\?\s*for shortcuts|bypass permissions on|auto mode on|accept edits on)/im;
 
