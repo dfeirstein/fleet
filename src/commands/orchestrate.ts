@@ -1,13 +1,39 @@
-// `fleet orchestrate [name]` — declare a cmux workspace as THE orchestrator
-// (the control plane). The orchestrator is a ROLE pinned to a workspace, not a
-// directory: it can sit in its own workspace and delegate into any project.
+// `fleet orchestrate [name]` / `fleet captain [name] [--split]` — declare a cmux
+// workspace as A Fleet Captain (the control plane). A Captain is a ROLE pinned to
+// a workspace, not a directory: it sits in its own workspace and delegates into
+// any project.
+//
+// `--split` spawns a FRESH sibling Captain in a split pane of the CURRENT
+// Captain's workspace, so you're not blocked when one Captain is busy. Up to 4
+// Captains per family = a 2×2 quadrant; each is fully independent (own
+// session/registry/daemon).
 import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { newWorkspace, closeWorkspace, cmux } from "../cmux.js";
-import { loadOrchestrator, orchestratorPath, type OrchestratorRecord } from "../orchestrator-record.js";
+import {
+  newWorkspace,
+  newSplit,
+  listSurfaces,
+  listGridCells,
+  closeWorkspace,
+  workspaceExists,
+  focusedWorkspace,
+  waitForTerminal,
+  submit,
+  cmux,
+} from "../cmux.js";
+import {
+  loadOrchestrator,
+  loadAllOrchestrators,
+  orchestratorPath,
+  orchestratorSession,
+  type OrchestratorRecord,
+} from "../orchestrator-record.js";
 import { daemonStart, daemonStop } from "./daemon.js";
+
+/** Max Captains per family — a 2×2 quadrant. */
+const QUADRANT_CAP = 4;
 
 function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "orchestrator";
@@ -17,17 +43,20 @@ function fleetDir(): string {
   return join(homedir(), ".fleet");
 }
 
-export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boolean } = {}): OrchestratorRecord {
-  mkdirSync(fleetDir(), { recursive: true });
-  const session = slug(name);
+/** The family a session belongs to: its name with any `-N` sibling suffix stripped. */
+function familyOf(session: string): string {
+  return session.replace(/-\d+$/, "");
+}
 
-  // Singleton: note (and re-point) if one already exists.
-  const prev = loadOrchestrator();
-  if (prev) {
-    console.log(`note: re-pointing orchestrator (was "${prev.name}" in ${prev.workspaceRef}).`);
-  }
+/** The quadrant index of a session within its family: base is #1, `-N` siblings are N. */
+function indexOf(session: string, family: string): number {
+  if (session === family) return 1;
+  const m = new RegExp(`^${family}-(\\d+)$`).exec(session);
+  return m ? Number(m[1]) : 0;
+}
 
-  // Compose the per-orchestrator system prompt: identity line + base doctrine.
+/** Compose the per-Captain doctrine system prompt and return its file path. */
+function writePromptFile(name: string, session: string): string {
   const baseDoctrine = readFileSync(
     fileURLToPath(new URL("../../skills/fleet/orchestrator-doctrine.md", import.meta.url)),
     "utf8",
@@ -38,6 +67,20 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
     `You are "${name}", the Fleet Captain — the orchestrator of this cmux fleet. ` +
       `Your fleet runs under session "${session}".\n\n${baseDoctrine}`,
   );
+  return promptPath;
+}
+
+export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boolean } = {}): OrchestratorRecord {
+  mkdirSync(fleetDir(), { recursive: true });
+  const session = slug(name);
+
+  // Per-session: note (and re-point) only if THIS session already has a Captain.
+  const prev = loadOrchestrator(session);
+  if (prev) {
+    console.log(`note: re-pointing Captain "${prev.name}" (was in ${prev.workspaceRef}).`);
+  }
+
+  const promptPath = writePromptFile(name, session);
 
   // Launch the interactive Captain (a Claude session) in a new focused, badged
   // workspace. FLEET_SESSION pins the fleet to its own named registry, so its
@@ -71,36 +114,154 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
     workspaceRef: ws.workspaceRef,
     declaredAt: new Date().toISOString(),
   };
-  writeFileSync(orchestratorPath(), JSON.stringify(record, null, 2));
+  writeFileSync(orchestratorPath(session), JSON.stringify(record, null, 2));
 
   // Badge the workspace so it's visibly the control plane in the sidebar.
-  try {
-    cmux([
-      "set-status",
-      "fleet:role",
-      `⚓ FLEET CAPTAIN · ${name}`,
-      "--workspace",
-      ws.workspaceId,
-      "--color",
-      "#a78bfa",
-      "--priority",
-      "200",
-    ]);
-  } catch {
-    // badge is decorative
-  }
+  badgeCaptain(ws.workspaceId, undefined, name);
 
   // Auto-start the supervisor, bound to THIS orchestrator (its session + target),
   // so completion feedback flows back without a separate step. This is what was
   // missing: a daemon not bound to the orchestrator's session sees 0 agents.
   if (opts.daemon !== false) {
-    try {
+    startDaemonFor(session, () => {
       daemonStop(); // clear any stale/other-session daemon first
       daemonStart();
-    } catch (e) {
-      console.error(`note: could not auto-start daemon: ${(e as Error).message}`);
-    }
+    });
   }
 
   return record;
+}
+
+/**
+ * `fleet captain --split` — spawn a FRESH sibling Captain in a split pane of the
+ * CURRENT Captain's workspace. No inherited conversation, no initial task: just
+ * an idle Captain ready for input. Refuses past a 4-Captain quadrant.
+ */
+export function captainSplit(opts: { daemon?: boolean; command?: string } = {}): OrchestratorRecord {
+  mkdirSync(fleetDir(), { recursive: true });
+
+  // Target workspace: the calling pane's ($CMUX_WORKSPACE_ID) if run from inside
+  // one, else the FOCUSED cmux workspace — so a global hotkey (run outside any
+  // pane) still splits the workspace the user is looking at.
+  const ws = process.env.CMUX_WORKSPACE_ID ?? focusedWorkspace()?.id;
+  if (!ws) {
+    throw new Error(
+      "--split could not resolve a target workspace (no $CMUX_WORKSPACE_ID and no focused cmux workspace).",
+    );
+  }
+
+  // Family = the calling session's base name (e.g. yoshi-3 → yoshi). Count the
+  // family's LIVE Captains (records whose workspace still exists).
+  const family = familyOf(orchestratorSession());
+  const live = loadAllOrchestrators().filter(
+    (o) => familyOf(o.session) === family && workspaceExists(o.workspaceId),
+  );
+  if (live.length >= QUADRANT_CAP) {
+    throw new Error(`Quadrant full (${QUADRANT_CAP} Captains) — close one first.`);
+  }
+
+  // Next name = the lowest free slot (base is #1; siblings -2..-4).
+  const taken = new Set(live.map((o) => indexOf(o.session, family)));
+  let n = 1;
+  while (taken.has(n)) n++;
+  const newSession = n === 1 ? family : `${family}-${n}`;
+  const newName = newSession;
+
+  // Split the CURRENT workspace, tiling toward a 2×2 quadrant by pane count:
+  //   1 pane → split right; 2 → split the left (first) pane down; 3 → split the
+  //   right (second) pane down. cmux lists panes top-left → top-right → bottom,
+  //   so the positional index is a stable proxy for left/right.
+  const cells = listGridCells(ws);
+  const count = cells.length;
+  const dir: "right" | "down" = count <= 1 ? "right" : "down";
+  const fromSurface =
+    count <= 1
+      ? cells[0]?.surfaceId ?? process.env.CMUX_SURFACE_ID
+      : count === 2
+        ? cells[0]!.surfaceId
+        : cells[1]!.surfaceId;
+
+  const beforeIds = new Set(cells.map((c) => c.surfaceId));
+  // Focus the new pane so its lazily-booted PTY comes up before we wait on it.
+  newSplit(dir, { workspace: ws, surface: fromSurface }, { focus: true });
+  const cell = listGridCells(ws).find((c) => !beforeIds.has(c.surfaceId));
+  if (!cell) throw new Error(`split in ${ws} did not produce a new pane`);
+
+  const target = { workspace: cell.workspaceId, surface: cell.surfaceId };
+  const workspaceRef = (() => {
+    try {
+      return listSurfaces(ws).workspace_ref;
+    } catch {
+      return ws;
+    }
+  })();
+
+  // Write the record BEFORE launching so the daemon (bound to newSession) and the
+  // launched Claude (whose registry derives from this record) both resolve it.
+  const record: OrchestratorRecord = {
+    name: newName,
+    session: newSession,
+    workspaceId: cell.workspaceId,
+    surfaceId: cell.surfaceId,
+    workspaceRef,
+    declaredAt: new Date().toISOString(),
+  };
+  writeFileSync(orchestratorPath(newSession), JSON.stringify(record, null, 2));
+
+  // The split pane boots lazily (bare shell, no --command) — wait for it, then
+  // launch a FRESH Captain by typing the command. `--command` overrides the
+  // program for testing (e.g. `sleep 600`) so the flow runs without real Claude.
+  waitForTerminal(target);
+  const promptPath = writePromptFile(newName, newSession);
+  const command =
+    opts.command ?? `FLEET_SESSION=${newSession} claude --append-system-prompt-file '${promptPath}'`;
+  submit(target, command);
+
+  // Badge just this pane (siblings share the workspace, so don't badge the whole
+  // workspace).
+  badgeCaptain(ws, cell.surfaceId, newName);
+
+  // Start a daemon bound to THIS sibling's session — independent of the other
+  // Captains' daemons (config/state are per-session). The existing Captains stay
+  // untouched.
+  if (opts.daemon !== false) {
+    startDaemonFor(newSession, () => daemonStart());
+  }
+
+  return record;
+}
+
+/** Badge a Captain in the cmux sidebar (workspace-wide, or scoped to a pane). */
+function badgeCaptain(workspace: string, surface: string | undefined, name: string): void {
+  try {
+    const args = [
+      "set-status",
+      "fleet:role",
+      `⚓ FLEET CAPTAIN · ${name}`,
+      "--workspace",
+      workspace,
+      "--color",
+      "#a78bfa",
+      "--priority",
+      "200",
+    ];
+    if (surface) args.push("--surface", surface);
+    cmux(args);
+  } catch {
+    // badge is decorative
+  }
+}
+
+/** Run a daemon-start step with FLEET_SESSION pinned to `session`, then restore. */
+function startDaemonFor(session: string, start: () => void): void {
+  const prevEnv = process.env.FLEET_SESSION;
+  process.env.FLEET_SESSION = session;
+  try {
+    start();
+  } catch (e) {
+    console.error(`note: could not auto-start daemon: ${(e as Error).message}`);
+  } finally {
+    if (prevEnv === undefined) delete process.env.FLEET_SESSION;
+    else process.env.FLEET_SESSION = prevEnv;
+  }
 }
