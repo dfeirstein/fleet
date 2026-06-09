@@ -129,21 +129,29 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     if (!agents.find((a) => a.agentId === id)) delete mem.screenSince[id];
   }
 
-  // Idle initiative: when the fleet goes from "something running" to "fully
-  // idle", fire ONE proactive wake-prompt offering the next step. Re-arms when a
-  // new worker starts running (so each wave gets one nudge, not a stream).
+  // Idle initiative: when a wave that was running settles into SUSTAINED
+  // all-idle (stable-idle dwell, B2 — never a single beat: one misattributed
+  // notification used to announce "wave complete" mid-task), fire ONE proactive
+  // wake-prompt offering the next step. Re-arms when a new worker starts.
   const live = agents.filter((a) => a.status !== "dead");
   // "active" includes "unknown" (booting/indeterminate) so a wave isn't declared
-  // complete while a worker is still starting up.
-  const anyRunning = live.some((a) => a.status === "running" || a.status === "unknown");
-  if (anyRunning) mem.waveAnnounced = false;
-  if (cfg.proactive && !anyRunning && mem.prevAnyRunning && live.length > 0 && !mem.waveAnnounced) {
+  // complete while a worker is still starting up, and "rate-limited" (mid-task,
+  // waiting out a limit — S4).
+  const anyActive = live.some(
+    (a) => a.status === "running" || a.status === "unknown" || a.status === "rate-limited",
+  );
+  if (anyActive) mem.waveActive = true;
+  const quiesced = mem.idleDwell.beat(
+    !anyActive && live.length > 0,
+    live.map((a) => a.lastDispatchAt),
+    now,
+  );
+  if (cfg.proactive && quiesced && mem.waveActive) {
     const text = waveCompleteMessage(live);
     const delivery = routeMessage(cfg, text, true); // urgent → inject when idle, else inbox
     console.log(`[daemon] ${delivery} (wave-complete): ${text}`);
-    mem.waveAnnounced = true;
+    mem.waveActive = false;
   }
-  mem.prevAnyRunning = anyRunning;
 
   console.log(`[daemon] beat · ${agents.length} agents · ${new Date().toISOString().slice(11, 19)}`);
 }

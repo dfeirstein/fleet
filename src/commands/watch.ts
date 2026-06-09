@@ -9,6 +9,7 @@ import { snapshot, type FleetRow } from "./status.js";
 import { updateSidebar } from "../dashboard.js";
 import { streamEvents, eventsSupported, type EventStreamHandle } from "../cmux.js";
 import { FleetEventReactor, type EventFrame, type AckFrame } from "../events.js";
+import { IdleDwell, DWELL_DEFAULTS } from "../quiescence.js";
 
 function sleepSeconds(s: number): void {
   execFileSync("sleep", [String(s)]);
@@ -57,11 +58,16 @@ function digest(rows: FleetRow[]): string {
 }
 
 // "active" = not safely quiescent. Includes "unknown" (booting/indeterminate is
-// NOT done) and "blocked-on-you" (a worker waiting on the user keeps watch alive
-// so the block stays surfaced until it's resolved). Plan §3.
-function activeCount(rows: FleetRow[]): number {
+// NOT done), "blocked-on-you" (a worker waiting on the user keeps watch alive
+// so the block stays surfaced until it's resolved — Plan §3), and
+// "rate-limited" (mid-task, merely waiting out a limit before resuming — S4).
+export function activeCount(rows: FleetRow[]): number {
   return rows.filter(
-    (r) => r.status === "running" || r.status === "unknown" || r.status === "blocked-on-you",
+    (r) =>
+      r.status === "running" ||
+      r.status === "unknown" ||
+      r.status === "blocked-on-you" ||
+      r.status === "rate-limited",
   ).length;
 }
 
@@ -94,7 +100,7 @@ export async function watch(opts: WatchOptions): Promise<void> {
 function watchPolling(opts: WatchOptions): void {
   const start = Date.now();
   const prev = new Map<string, string>();
-  let quietStreak = 0;
+  const dwell = new IdleDwell();
 
   for (;;) {
     const rows = snapshot(); // reconciles registry, classifies, returns rows
@@ -103,16 +109,12 @@ function watchPolling(opts: WatchOptions): void {
     const active = activeCount(rows);
 
     if (opts.untilIdle) {
-      // Debounce transient reads: require two consecutive quiet polls.
-      if (active === 0) {
-        quietStreak++;
-        if (quietStreak >= 2) {
-          console.log(`${ts()}  fleet quiescent (${rows.length} agents).`);
-          console.log(digest(rows));
-          return;
-        }
-      } else {
-        quietStreak = 0;
+      // Stable-idle dwell (B1): one misattributed all-idle read must not end
+      // the watch — require sustained idleness + no fresh dispatch.
+      if (dwell.beat(active === 0, rows.map((r) => r.lastDispatchAt), Date.now())) {
+        console.log(`${ts()}  fleet quiescent (${rows.length} agents).`);
+        console.log(digest(rows));
+        return;
       }
     }
 
@@ -132,7 +134,7 @@ function watchEventDriven(opts: WatchOptions): Promise<void> {
   return new Promise<void>((resolve) => {
     const start = Date.now();
     const prev = new Map<string, string>();
-    let quietStreak = 0;
+    const dwell = new IdleDwell();
     let stopped = false;
     let lastReconcile = 0;
     let confirmTimer: ReturnType<typeof setTimeout> | undefined;
@@ -163,14 +165,17 @@ function watchEventDriven(opts: WatchOptions): Promise<void> {
 
       if (opts.untilIdle) {
         if (active === 0) {
-          quietStreak++;
-          if (quietStreak >= 2) return finish(rows, `fleet quiescent (${rows.length} agents).`);
-          // Confirm quiescence quickly (a second quiet reconcile) WITHOUT waiting
-          // for the slow tick — keeps exit fast even when no more events flow.
+          // Stable-idle dwell (B1): exit only after sustained all-idle beats
+          // spanning the dwell window with no fresh dispatch.
+          if (dwell.beat(true, rows.map((r) => r.lastDispatchAt), Date.now())) {
+            return finish(rows, `fleet quiescent (${rows.length} agents).`);
+          }
+          // Schedule the confirming reconcile past the dwell span WITHOUT
+          // waiting for the slow tick — keeps exit prompt when no more events flow.
           if (confirmTimer) clearTimeout(confirmTimer);
-          confirmTimer = setTimeout(() => reconcile(true), 1500);
+          confirmTimer = setTimeout(() => reconcile(true), DWELL_DEFAULTS.minSpanMs + 500);
         } else {
-          quietStreak = 0;
+          dwell.reset();
           if (confirmTimer) clearTimeout(confirmTimer);
         }
       }

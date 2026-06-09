@@ -10,6 +10,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readScreen } from "../cmux.js";
 import { listAgents, patch, target, type Agent } from "../registry.js";
+import { classifyScreen } from "../status.js";
 import { CLAUDE_DOCS_DIR } from "../project-memory.js";
 import { appendOutcome } from "../outcomes.js";
 import { gateAgentProof, proofState } from "../proof.js";
@@ -23,6 +24,9 @@ export interface WorkerDigest {
   wavePath?: string; // file the raw output was written to (handle for recall)
   tail: string; // last few lines — the only worker output that reaches the Captain
   proof?: "verified" | "missing" | "failed"; // the proof-gate verdict at wave close
+  /** The captured screen still shows a live spinner — digest deferred, never
+   *  finalized/gated on this call (B4). */
+  stillWorking?: boolean;
 }
 
 /** The project root a worker belongs to (its worktree repo, else its cwd). */
@@ -70,18 +74,30 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       }
     }
 
+    // B4: digest can be called at any moment (a premature wave-complete, an
+    // impatient Captain). The captured screen is the evidence — if it still
+    // shows a live spinner, this worker is MID-TURN whatever the registry says:
+    // never finalize or proof-gate it, report "still working" instead. And if a
+    // prior premature digest already pinned a verdict for this same dispatch,
+    // un-pin it so the REAL completion gets gated (no trajectory poisoning).
+    const stillWorking = classifyScreen(raw) === "running";
+    const alreadyFinal = a.finalizedAt !== undefined && a.finalizedAt >= a.lastDispatchAt;
+    if (stillWorking && alreadyFinal) {
+      patch(a.agentId, { finalizedAt: undefined, finalProof: undefined });
+    }
+
     // Feature 3 — the proof gate on "done". Only a worker that has stopped is a
     // completion candidate; gating to terminal status keeps a still-running
     // worker from re-logging on every digest. The gate then decides whether it's
     // a CLEAN complete: an idle worker whose proof passes → `complete`; an idle
     // worker with missing/failed proof — or a dead/errored one — is recorded with
     // its proof state but NEVER as a clean completion ("idle == done" is dead).
-    const terminal = a.status === "idle" || a.status === "dead" || a.status === "error";
+    const terminal =
+      !stillWorking && (a.status === "idle" || a.status === "dead" || a.status === "error");
     let proof: "verified" | "missing" | "failed" | undefined;
     // Dedup: once the gate has recorded a terminal outcome for this turn, don't
     // re-run runnable proofs or re-log on subsequent digests. A re-dispatch
     // (lastDispatchAt advances past finalizedAt) clears this and re-gates.
-    const alreadyFinal = a.finalizedAt !== undefined && a.finalizedAt >= a.lastDispatchAt;
     if (terminal && alreadyFinal) {
       proof = a.finalProof;
     } else if (terminal) {
@@ -124,12 +140,13 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
     digests.push({
       agentId: a.agentId,
       label: a.label,
-      status: a.status,
+      status: stillWorking ? "running" : a.status,
       objective: (a.task || "").replace(/\s+/g, " ").slice(0, 140),
       project: projectDir(a),
       wavePath,
       tail: lastLines(raw, 12),
       proof,
+      stillWorking: stillWorking || undefined,
     });
   }
 
@@ -142,7 +159,8 @@ export function renderDigests(waveId: string, digests: WorkerDigest[]): string {
   const lines = [`wave ${waveId} — ${digests.length} worker(s):`, ""];
   for (const d of digests) {
     const proofTag =
-      d.proof === "verified" ? "  ✓ complete (proof verified)"
+      d.stillWorking ? "  ⏳ still working (digest deferred — not finalized)"
+      : d.proof === "verified" ? "  ✓ complete (proof verified)"
       : d.proof === "missing" ? "  ⚠ done (no proof)"
       : d.proof === "failed" ? "  ✗ proof-failed"
       : "";

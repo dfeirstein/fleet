@@ -4,18 +4,23 @@
 // in loop.ts, e.g. clearing a stuck bypass dialog); everything risky is
 // surfaced here for the orchestrator to decide.
 
+import { IdleDwell } from "../quiescence.js";
+
 export interface DaemonMemory {
   /** agentId -> condition -> last alert epoch ms */
   lastAlert: Record<string, Record<string, number>>;
   /** agentId -> { screen hash, epoch ms it last changed } (for stuck detection) */
   screenSince: Record<string, { hash: string; since: number }>;
-  /** idle-initiative edge tracking */
-  prevAnyRunning: boolean;
-  waveAnnounced: boolean;
+  /** A worker has been seen active since the last wave announcement — the
+   *  wave-complete prompt fires once per wave and re-arms on new activity. */
+  waveActive: boolean;
+  /** Stable-idle dwell: wave-complete only after sustained all-idle (B2) —
+   *  a single misclassified beat must not announce a wave. */
+  idleDwell: IdleDwell;
 }
 
 export function newMemory(): DaemonMemory {
-  return { lastAlert: {}, screenSince: {}, prevAnyRunning: false, waveAnnounced: false };
+  return { lastAlert: {}, screenSince: {}, waveActive: false, idleDwell: new IdleDwell() };
 }
 
 /**
