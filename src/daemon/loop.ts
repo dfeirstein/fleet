@@ -1,19 +1,60 @@
-// The heartbeat loop (`fleet daemon run`). Token-free: timers + cmux socket
-// calls + our existing snapshot/notifications. Each beat: reconcile, classify,
-// take bounded auto-actions, escalate anything that needs the orchestrator,
-// refresh the sidebar, record liveness.
+// The heartbeat loop (`fleet daemon run`). ONE shared daemon watches ALL live
+// Captains: each tick it enumerates them and runs the existing per-Captain
+// checks over the SET, routing each session's events to ITS orchestrator.
+// Token-free: timers + cmux socket calls + our existing snapshot/notifications.
+// Each beat per Captain: reconcile, classify, take bounded auto-actions,
+// escalate anything that needs the orchestrator, refresh the sidebar.
 import { spawn as spawnProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createHash } from "node:crypto";
-import { readScreen, cmuxBin, type Target } from "../cmux.js";
+import { readScreen, cmuxBin, workspaceExists, closeWorkspace, type Target } from "../cmux.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
 import { resume } from "../commands/resume.js";
 import { acceptBypassDialog } from "../commands/spawn.js";
 import { updateSidebar, setHeartbeat } from "../dashboard.js";
-import { loadConfig, writeState, type DaemonConfig } from "./config.js";
+import {
+  loadSharedSettings,
+  writeSharedState,
+  removeSharedState,
+  acquireSharedLock,
+  releaseSharedLock,
+  type DaemonConfig,
+  type SharedSettings,
+} from "./config.js";
+import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-record.js";
 import { routeMessage } from "./channel.js";
 import { newMemory, evaluate, waveCompleteMessage, type DaemonMemory } from "./policy.js";
+
+/** Every Captain whose workspace is still live — the set the daemon watches. */
+export function liveCaptains(): OrchestratorRecord[] {
+  return loadAllOrchestrators().filter((o) => o.workspaceId && workspaceExists(o.workspaceId));
+}
+
+/** Build a per-Captain DaemonConfig from its record + the shared tunables. */
+function configForCaptain(o: OrchestratorRecord, s: SharedSettings): DaemonConfig {
+  return {
+    orchestrator: { workspace: o.workspaceId, surface: o.surfaceId },
+    session: o.session,
+    heartbeatSec: s.heartbeatSec,
+    stuckMinutes: s.stuckMinutes,
+    alertCooldownSec: s.alertCooldownSec,
+    proactive: s.proactive,
+  };
+}
+
+/** Run `fn` with FLEET_SESSION pinned to `session` so the registry/inbox the
+ *  per-Captain checks read & route to are THIS Captain's, then restore. */
+function withSession<T>(session: string, fn: () => T): T {
+  const prev = process.env.FLEET_SESSION;
+  process.env.FLEET_SESSION = session;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.FLEET_SESSION;
+    else process.env.FLEET_SESSION = prev;
+  }
+}
 
 function sha1(s: string): string {
   return createHash("sha1").update(s).digest("hex");
@@ -101,10 +142,25 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
 }
 
 export function runLoop(): void {
-  const cfg = loadConfig();
-  if (!cfg) throw new Error("no daemon config — run `fleet daemon start` first");
+  // Single-instance guard: only the loop that wins the lock runs. A loser (e.g. a
+  // racing `--split` spawned a second daemon workspace) closes its own pane and
+  // exits, so we never double-watch the fleet.
+  if (!acquireSharedLock()) {
+    console.log("[daemon] another shared daemon already holds the lock — exiting");
+    const myWs = process.env.CMUX_WORKSPACE_ID;
+    if (myWs) {
+      try {
+        closeWorkspace(myWs);
+      } catch {
+        /* ignore — orphan pane is cosmetic */
+      }
+    }
+    process.exit(0);
+  }
 
-  const mem = newMemory();
+  const settings = loadSharedSettings();
+  const mems = new Map<string, DaemonMemory>(); // per-Captain memory (session-keyed)
+  const resumed = new Set<string>(); // sessions already reconciled once
   const startedAt = new Date().toISOString();
   const daemonWorkspace = process.env.CMUX_WORKSPACE_ID;
   let ticks = 0;
@@ -118,22 +174,53 @@ export function runLoop(): void {
     if (now - lastBeatMs < MIN_BEAT_MS) return;
     lastBeatMs = now;
     ticks++;
-    try {
-      beat(cfg!, mem);
-    } catch (e) {
-      console.error(`[daemon] beat error: ${(e as Error).message}`);
+
+    const captains = liveCaptains();
+    const liveSessions = new Set(captains.map((c) => c.session));
+    for (const o of captains) {
+      const cfg = configForCaptain(o, settings);
+      let mem = mems.get(o.session);
+      if (!mem) {
+        mem = newMemory();
+        mems.set(o.session, mem);
+      }
+      withSession(o.session, () => {
+        // Reconcile the registry against live cmux once when a Captain is first
+        // adopted (auto-discovered Captains get the same startup reconcile).
+        if (!resumed.has(o.session)) {
+          resumed.add(o.session);
+          try {
+            resume();
+          } catch (e) {
+            console.error(`[daemon] resume failed (${o.session}): ${(e as Error).message}`);
+          }
+        }
+        try {
+          beat(cfg, mem!);
+        } catch (e) {
+          console.error(`[daemon] beat error (${o.session}): ${(e as Error).message}`);
+        }
+      });
     }
-    writeState({ pid: process.pid, startedAt, lastBeatAt: new Date().toISOString(), ticks, daemonWorkspace });
+
+    // Drop memory + resume-state for Captains that closed (workspace gone).
+    for (const s of [...mems.keys()]) if (!liveSessions.has(s)) mems.delete(s);
+    for (const s of [...resumed]) if (!liveSessions.has(s)) resumed.delete(s);
+
+    writeSharedState({
+      pid: process.pid,
+      startedAt,
+      lastBeatAt: new Date().toISOString(),
+      ticks,
+      daemonWorkspace,
+      watching: [...liveSessions],
+    });
+    console.log(
+      `[daemon] beat · ${captains.length} captains · ${new Date().toISOString().slice(11, 19)}`,
+    );
   }
 
-  console.log(
-    `[daemon] boot · orchestrator=${cfg.orchestrator.workspace} · session=${cfg.session ?? "(cwd)"} · event-driven + ${cfg.heartbeatSec}s tick`,
-  );
-  try {
-    resume(); // reconcile registry against live cmux on startup
-  } catch (e) {
-    console.error(`[daemon] resume failed: ${(e as Error).message}`);
-  }
+  console.log(`[daemon] boot · shared · watching all live Captains · event-driven + ${settings.heartbeatSec}s tick`);
   doBeat();
 
   // Fast path: react to cmux's notification stream in real time (a worker's
@@ -167,7 +254,7 @@ export function runLoop(): void {
 
   // Slow path: periodic tick for the sidebar pulse, stuck/zombie detection (the
   // absence of events), and a safety net.
-  const timer = setInterval(doBeat, cfg.heartbeatSec * 1000);
+  const timer = setInterval(doBeat, settings.heartbeatSec * 1000);
 
   function shutdown(): void {
     if (stopping) return;
@@ -178,6 +265,8 @@ export function runLoop(): void {
     } catch {
       /* ignore */
     }
+    releaseSharedLock();
+    removeSharedState();
     console.log("[daemon] stopped");
     process.exit(0);
   }
