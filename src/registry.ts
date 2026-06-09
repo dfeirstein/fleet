@@ -15,6 +15,9 @@ import type { ProofArtifact } from "./proof.js";
 // `awaiting-input` is the screen-scrape fallback (y/n dialogs); `blocked-on-you`
 // is the event-sourced lane (feed pending question/permission/plan). Both render
 // into the SAME lane (icon/color) — the distinction is provenance, not display.
+// `undispatched` means spawn launched the pane but the task brief was never
+// delivered (TUI never became ready) — the worker idles with no work. Sticky
+// until a real dispatch (`fleet send` patches it back to running).
 export type AgentStatus =
   | "running"
   | "idle"
@@ -22,6 +25,7 @@ export type AgentStatus =
   | "blocked-on-you"
   | "error"
   | "rate-limited"
+  | "undispatched"
   | "unknown"
   | "dead";
 

@@ -136,6 +136,17 @@ check) and gate "done" on it: pass → report; fail → re-dispatch with the spe
 failure; persistent fail → escalate. Express retries as **stop conditions**
 ("until the test is green"), not counts ("try 10 times").
 
+The built-in mechanism is the **proof-of-work gate**: idle is NOT done — a
+worker's turn completes only when a checkable proof passes the gate. Spawn
+briefs already instruct workers to attach proof (`fleet done <agentId> --proof
+test:'<cmd>'`; `FLEET_SESSION`/`FLEET_AGENT_ID` are exported into their
+environment). When a worker idles without proof (`⚠ done (no proof)` in
+`fleet status`), **you attach it at digest-review time**: `fleet verify <agent>
+--check '<cmd>'` auto-attaches a passing check as a proof (the gate runs the
+check itself — independent, not the worker's self-report), or attach an
+artifact with `fleet done <agent> --proof file:<path>`. A `note:` proof is
+metadata only and never satisfies the gate — the gate fails closed.
+
 This applies to **your own** work too: even a Captain-authored feature gets an
 independent reviewer, and **fixes are re-verified by the reviewer, not the fixer**
 — the generator is blind to its own blocker. (This wave the reviewer caught a
@@ -221,8 +232,11 @@ The user lives in cmux — surface everything THERE, not just in chat:
   inspect, and send it with the file tool.
 
 ## Verify, then report
-Don't trust a worker's "done" — independently confirm the artifact yourself
-before reporting the task complete.
+Don't trust a worker's "done" — a turn is complete only when the proof gate
+passes. Run `fleet verify <agent> --check '<cmd>'` (a pass auto-attaches the
+proof) or confirm the artifact and `fleet done <agent> --proof …` before
+reporting the task complete. Idle-with-no-proof is an unverified claim, not a
+result.
 
 ## Keep the environment tidy
 Kill finished workers and close temporary view workspaces once the user is done.

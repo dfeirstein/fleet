@@ -32,7 +32,8 @@ export interface OutcomeRecord {
   /** verify: the independent eval verdict + the check that produced it. */
   verdict?: "pass" | "fail";
   check?: string;
-  /** kill/complete: the worker's final observed status. */
+  /** kill/complete: the worker's final observed status. spawn: set to
+   *  "undispatched" when the task brief could not be delivered. */
   status?: string;
   /** complete: where the wave digest wrote the worker's raw output (recall handle). */
   wavePath?: string;

@@ -17,6 +17,10 @@ function scorerPath(): string | undefined {
   return candidates.find((p) => existsSync(p));
 }
 
+/** State of the currency cache: distinguishes "never created" (the explicitly
+ *  allowed soft case) from "exists but corrupt/unreadable" (fails closed). */
+export type CurrencyState = "ok" | "missing" | "unreadable";
+
 export interface AuditResult {
   hasClaudeMd: boolean;
   score?: number;
@@ -24,6 +28,11 @@ export interface AuditResult {
   report: string;
   staleCurrency: string[];
   currencyChecked: boolean;
+  currencyState: CurrencyState;
+  /** Why the gate failed (empty on pass). */
+  failReasons: string[];
+  /** Explicitly-allowed soft cases, stated so the gate contract is visible. */
+  gateNotes: string[];
   pass: boolean;
 }
 
@@ -37,9 +46,9 @@ function parseScore(out: string): { score?: number; grade?: string } {
 }
 
 /** Currency entries whose resolved fact is older than the cache's TTL. */
-function staleCurrency(cwd: string): { stale: string[]; checked: boolean } {
+function staleCurrency(cwd: string): { stale: string[]; state: CurrencyState } {
   const p = currencyJsonPath(cwd);
-  if (!existsSync(p)) return { stale: [], checked: false };
+  if (!existsSync(p)) return { stale: [], state: "missing" };
   try {
     const cache = JSON.parse(readFileSync(p, "utf8")) as {
       ttlDays?: number;
@@ -53,10 +62,52 @@ function staleCurrency(cwd: string): { stale: string[]; checked: boolean } {
         return !Number.isFinite(age) || age >= ttl;
       })
       .map((e) => e.name);
-    return { stale, checked: true };
+    return { stale, state: "ok" };
   } catch {
-    return { stale: [], checked: false };
+    return { stale: [], state: "unreadable" };
   }
+}
+
+export interface AuditDecisionInput {
+  hasClaudeMd: boolean;
+  /** Was the claude-md-architect scorer found on disk? */
+  scorerFound: boolean;
+  /** Parsed score; undefined = scorer crashed or emitted no parseable score. */
+  score?: number;
+  minScore: number;
+  staleCurrency: string[];
+  currencyState: CurrencyState;
+}
+
+/**
+ * The audit-docs pass/fail decision — pure, unit-tested. FAILS CLOSED: an
+ * inconclusive input (scorer missing/crashed, currency cache unreadable) is a
+ * FAIL with a stated reason, never a silent pass. The ONE allowed soft case is
+ * a currency cache that doesn't exist yet — and that is stated in the output
+ * (gate contract visible), not silently skipped.
+ */
+export function decideAudit(i: AuditDecisionInput): { pass: boolean; reasons: string[]; notes: string[] } {
+  const reasons: string[] = [];
+  const notes: string[] = [];
+  if (!i.hasClaudeMd) {
+    reasons.push("no CLAUDE.md — run `fleet bootstrap`");
+  } else if (!i.scorerFound) {
+    reasons.push("scorer not installed — inconclusive, fail closed (install the claude-md-architect skill)");
+  } else if (i.score === undefined) {
+    reasons.push("scorer crashed or produced no score — inconclusive, fail closed");
+  } else if (i.score < i.minScore) {
+    reasons.push(`CLAUDE.md scored ${i.score} < ${i.minScore}`);
+  }
+  if (i.currencyState === "unreadable") {
+    reasons.push("currency cache unreadable/corrupt — inconclusive, fail closed (re-run `fleet currency`)");
+  } else if (i.currencyState === "missing") {
+    notes.push(
+      "currency: no cache file yet — soft pass by gate contract (a missing cache is allowed; an unreadable one fails). Run `fleet currency` to resolve versions/model-IDs.",
+    );
+  } else if (i.staleCurrency.length > 0) {
+    reasons.push(`${i.staleCurrency.length} currency fact(s) past TTL — run \`fleet currency\``);
+  }
+  return { pass: reasons.length === 0, reasons, notes };
 }
 
 /**
@@ -72,25 +123,41 @@ export function auditDocs(opts: { cwd: string; minScore?: number }): AuditResult
   let report = "";
   let score: number | undefined;
   let grade: string | undefined;
+  const scorer = hasClaudeMd ? scorerPath() : undefined;
 
   if (!hasClaudeMd) {
     report = `No CLAUDE.md in ${opts.cwd}. Run \`fleet bootstrap --cwd ${opts.cwd}\` to create one.`;
+  } else if (!scorer) {
+    report = `claude-md-architect scorer not found — install the skill to score CLAUDE.md. (CLAUDE.md exists.)`;
   } else {
-    const scorer = scorerPath();
-    if (!scorer) {
-      report = `claude-md-architect scorer not found — install the skill to score CLAUDE.md. (CLAUDE.md exists.)`;
-    } else {
-      try {
-        report = execFileSync("python3", [scorer, mdPath], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-        ({ score, grade } = parseScore(report));
-      } catch (err) {
-        report = `scorer failed: ${(err as Error).message}`;
-      }
+    try {
+      report = execFileSync("python3", [scorer, mdPath], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      ({ score, grade } = parseScore(report));
+    } catch (err) {
+      report = `scorer failed: ${(err as Error).message}`;
     }
   }
 
-  const { stale, checked } = staleCurrency(opts.cwd);
-  const pass = hasClaudeMd && (score === undefined || score >= minScore) && stale.length === 0;
+  const { stale, state } = staleCurrency(opts.cwd);
+  const { pass, reasons, notes } = decideAudit({
+    hasClaudeMd,
+    scorerFound: scorer !== undefined,
+    score,
+    minScore,
+    staleCurrency: stale,
+    currencyState: state,
+  });
 
-  return { hasClaudeMd, score, grade, report, staleCurrency: stale, currencyChecked: checked, pass };
+  return {
+    hasClaudeMd,
+    score,
+    grade,
+    report,
+    staleCurrency: stale,
+    currencyChecked: state === "ok",
+    currencyState: state,
+    failReasons: reasons,
+    gateNotes: notes,
+    pass,
+  };
 }
