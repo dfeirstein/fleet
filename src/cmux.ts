@@ -153,6 +153,26 @@ export function closeSurface(target: Target): void {
   cmux(args);
 }
 
+interface WorkspaceListResponse {
+  workspaces?: { id?: string; ref?: string; selected?: boolean }[];
+}
+
+/**
+ * The currently focused workspace — the `selected` one in the active window.
+ * Lets a global hotkey (run outside any pane, so no $CMUX_WORKSPACE_ID) target
+ * the workspace the user is looking at.
+ */
+export function focusedWorkspace(): { id: string; ref: string } | undefined {
+  try {
+    const { workspaces } = cmuxJson<WorkspaceListResponse>(["rpc", "workspace.list"]);
+    const sel = (workspaces ?? []).find((w) => w.selected && w.id);
+    if (sel?.id) return { id: sel.id, ref: sel.ref ?? sel.id };
+  } catch {
+    // can't reach cmux — caller falls back
+  }
+  return undefined;
+}
+
 /** True if a workspace still exists (used to reconcile a stale registry). */
 export function workspaceExists(workspace: string): boolean {
   try {

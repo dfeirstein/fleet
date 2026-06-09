@@ -1,7 +1,13 @@
 // Daemon config + runtime state, under ~/.fleet/daemon/.
+//
+// Paths are PER-SESSION (keyed by FLEET_SESSION) so each Captain in a quadrant
+// runs an independent daemon. The pre-split singleton files are still read as a
+// fallback for the default session, so a daemon launched before the split stays
+// visible to `daemon status`/`stop` until it's restarted.
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { DEFAULT_SESSION } from "../orchestrator-record.js";
 
 export interface DaemonConfig {
   /** The orchestrator session the daemon reports to. */
@@ -29,9 +35,28 @@ export interface DaemonState {
 export function daemonDir(): string {
   return join(homedir(), ".fleet", "daemon");
 }
-export const configPath = () => join(daemonDir(), "config.json");
-export const statePath = () => join(daemonDir(), "state.json");
-export const inboxPath = () => join(daemonDir(), "inbox.md");
+
+/** The session this daemon's files are keyed by (FLEET_SESSION → default). */
+function daemonSession(): string {
+  return process.env.FLEET_SESSION ?? DEFAULT_SESSION;
+}
+
+export const configPath = () => join(daemonDir(), `config-${daemonSession()}.json`);
+export const statePath = () => join(daemonDir(), `state-${daemonSession()}.json`);
+export const inboxPath = () => join(daemonDir(), `inbox-${daemonSession()}.md`);
+
+// Pre-split singleton paths — read-only fallbacks for the default session.
+const legacyConfigPath = () => join(daemonDir(), "config.json");
+const legacyStatePath = () => join(daemonDir(), "state.json");
+const legacyInboxPath = () => join(daemonDir(), "inbox.md");
+
+/** A read path that prefers the per-session file but falls back to the legacy
+ *  singleton for the default session (so a pre-split daemon stays discoverable). */
+function readPath(perSession: string, legacy: string): string {
+  if (existsSync(perSession)) return perSession;
+  if (daemonSession() === DEFAULT_SESSION && existsSync(legacy)) return legacy;
+  return perSession;
+}
 
 export const DAEMON_DEFAULTS = {
   heartbeatSec: 12,
@@ -46,9 +71,10 @@ export function saveConfig(cfg: DaemonConfig): void {
 }
 
 export function loadConfig(): DaemonConfig | undefined {
-  if (!existsSync(configPath())) return undefined;
+  const p = readPath(configPath(), legacyConfigPath());
+  if (!existsSync(p)) return undefined;
   try {
-    return JSON.parse(readFileSync(configPath(), "utf8")) as DaemonConfig;
+    return JSON.parse(readFileSync(p, "utf8")) as DaemonConfig;
   } catch {
     return undefined;
   }
@@ -63,9 +89,10 @@ export function writeState(state: DaemonState): void {
 }
 
 export function readState(): DaemonState | undefined {
-  if (!existsSync(statePath())) return undefined;
+  const p = readPath(statePath(), legacyStatePath());
+  if (!existsSync(p)) return undefined;
   try {
-    return JSON.parse(readFileSync(statePath(), "utf8")) as DaemonState;
+    return JSON.parse(readFileSync(p, "utf8")) as DaemonState;
   } catch {
     return undefined;
   }

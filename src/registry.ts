@@ -9,6 +9,7 @@ import { join, basename } from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { loadAllOrchestrators } from "./orchestrator-record.js";
 
 export type AgentStatus = "running" | "idle" | "awaiting-input" | "error" | "rate-limited" | "unknown" | "dead";
 
@@ -52,26 +53,21 @@ interface RegistryFile {
 export function sessionId(): string {
   if (process.env.FLEET_SESSION) return process.env.FLEET_SESSION;
 
-  const orch = readOrchestratorRecord();
-  if (orch && process.env.CMUX_WORKSPACE_ID && orch.workspaceId === process.env.CMUX_WORKSPACE_ID) {
-    return orch.session;
+  // If this process IS a declared Captain, use that Captain's session. With
+  // sibling Captains sharing one workspace, match on workspace AND surface so
+  // each pane binds to its OWN session, not whichever record was found first.
+  const ws = process.env.CMUX_WORKSPACE_ID;
+  if (ws) {
+    const orchs = loadAllOrchestrators().filter((o) => o.workspaceId === ws);
+    const surface = process.env.CMUX_SURFACE_ID;
+    const mine = orchs.find((o) => o.surfaceId === surface) ?? (orchs.length === 1 ? orchs[0] : undefined);
+    if (mine) return mine.session;
   }
 
   const root = projectRoot();
   const slug = basename(root).replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "root";
   const hash = createHash("sha1").update(root).digest("hex").slice(0, 8);
   return `${slug}-${hash}`;
-}
-
-/** Read the declared orchestrator record (inline, to avoid a module cycle). */
-function readOrchestratorRecord(): { workspaceId: string; session: string } | undefined {
-  try {
-    const p = join(homedir(), ".fleet", "orchestrator.json");
-    if (!existsSync(p)) return undefined;
-    return JSON.parse(readFileSync(p, "utf8")) as { workspaceId: string; session: string };
-  } catch {
-    return undefined;
-  }
 }
 
 function projectRoot(): string {
