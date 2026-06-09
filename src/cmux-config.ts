@@ -17,7 +17,7 @@ export function cmuxConfigPath(): string {
 export const SPAWN_CAPTAIN_ACTION_ID = "fleet.spawnCaptain";
 export const SPAWN_CAPTAIN_ACTION = {
   type: "command",
-  command: "fleet captain --split",
+  command: "fleet captain --split --close-origin",
   shortcut: "cmd+shift+y",
 } as const;
 

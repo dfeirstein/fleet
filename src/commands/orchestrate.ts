@@ -17,6 +17,7 @@ import {
   listSurfaces,
   listGridCells,
   closeWorkspace,
+  closeSurface,
   workspaceExists,
   focusedWorkspace,
   waitForTerminal,
@@ -137,7 +138,7 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
  * CURRENT Captain's workspace. No inherited conversation, no initial task: just
  * an idle Captain ready for input. Refuses past a 4-Captain quadrant.
  */
-export function captainSplit(opts: { daemon?: boolean; command?: string } = {}): OrchestratorRecord {
+export function captainSplit(opts: { daemon?: boolean; command?: string; closeOrigin?: boolean } = {}): OrchestratorRecord {
   mkdirSync(fleetDir(), { recursive: true });
 
   // Target workspace: the calling pane's ($CMUX_WORKSPACE_ID) if run from inside
@@ -226,6 +227,20 @@ export function captainSplit(opts: { daemon?: boolean; command?: string } = {}):
   // untouched.
   if (opts.daemon !== false) {
     startDaemonFor(newSession, () => daemonStart());
+  }
+
+  // Hotkey path: cmux opens a throwaway runner tab (`newTabInCurrentPane`) to run
+  // this command, while the split above is the real new Captain pane. Close that
+  // origin surface so the user is left with exactly the new pane — no leftover tab.
+  // (Manual `fleet captain --split` from a real terminal omits --close-origin, so
+  // it never closes the terminal the user is typing in.) Done last; this surface is
+  // the one we're running in, so the process ends with the close.
+  if (opts.closeOrigin && process.env.CMUX_SURFACE_ID) {
+    try {
+      closeSurface({ workspace: ws, surface: process.env.CMUX_SURFACE_ID });
+    } catch {
+      // best-effort — a leftover tab is cosmetic, never fail the spawn over it
+    }
   }
 
   return record;
