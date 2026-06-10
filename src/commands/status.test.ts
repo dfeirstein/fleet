@@ -3,7 +3,7 @@
 // notification; sibling-pane notifications must not be attributable at all.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyLive } from "./status.js";
+import { classifyLive, prefetchFromSnapshot } from "./status.js";
 import { indexNotifications, notificationFor, type CmuxNotification } from "../notifications.js";
 
 const DISPATCH = "2026-06-09T05:00:00Z";
@@ -57,6 +57,49 @@ test("classifyLive: live screen evidence still beats the done-signal (layers und
 test("classifyLive: without a done-signal, inference is unchanged (workers that never call fleet done)", () => {
   assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: false }), "unknown");
   assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH }), "unknown");
+});
+
+// ── Snapshot-first prefetch (one-RPC sidebar snapshot) ──────────────────────
+// The snapshot is an OPTIMIZATION of how data is fetched, not a classification
+// input: `exists` may only ever be `true` (positively listed) or `undefined`
+// (caller falls back to the live existence check) — never `false`.
+
+const SIDEBAR = new Map([
+  [
+    "WS-1",
+    {
+      id: "WS-1",
+      ref: "workspace:4",
+      listeningPorts: [":3000"],
+      pullRequestUrls: ["https://github.com/o/r/pull/7"],
+      gitBranches: ["fleet/x"],
+      latestConversationMessage: "done",
+    },
+  ],
+]);
+
+test("prefetchFromSnapshot: a listed workspace maps existence + ports + PR URLs", () => {
+  const pre = prefetchFromSnapshot("WS-1", SIDEBAR);
+  assert.equal(pre.exists, true);
+  assert.deepEqual(pre.ports, [":3000"]);
+  assert.deepEqual(pre.prUrls, ["https://github.com/o/r/pull/7"]);
+});
+
+test("prefetchFromSnapshot: a workspace ABSENT from the snapshot defers (never 'dead')", () => {
+  // The RPC may be scoped to one window — absence must route the caller to the
+  // live existence check, not to a death verdict.
+  const pre = prefetchFromSnapshot("WS-OTHER-WINDOW", SIDEBAR);
+  assert.equal(pre.exists, undefined);
+  assert.deepEqual(pre.ports, []);
+  assert.deepEqual(pre.prUrls, []);
+});
+
+test("prefetchFromSnapshot: capability-gated off (no snapshot) → full fallback", () => {
+  assert.equal(prefetchFromSnapshot("WS-1", undefined).exists, undefined);
+});
+
+test("prefetchFromSnapshot: a worker with no workspace UUID keeps the legacy path", () => {
+  assert.equal(prefetchFromSnapshot(undefined, SIDEBAR).exists, undefined);
 });
 
 test("sibling notification misattribution no longer flips a running worker (B1, end-to-end)", () => {

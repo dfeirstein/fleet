@@ -31,6 +31,13 @@ export interface DaemonConfig {
   alertCooldownSec: number;
   /** Proactive idle-initiative wake-prompts on wave completion. */
   proactive: boolean;
+  /** Resource guardrails (Captain NUDGES only — the daemon never auto-kills).
+   *  A worker above cpuHogPercent for cpuHogBeats consecutive beats, or whose
+   *  resident set exceeds memHogMb, gets escalated. Capability-gated on
+   *  `cmux top`; an older cmux skips the check entirely. */
+  cpuHogPercent: number;
+  cpuHogBeats: number;
+  memHogMb: number;
 }
 
 export function daemonDir(): string {
@@ -52,6 +59,11 @@ export const DAEMON_DEFAULTS = {
   stuckMinutes: 8,
   alertCooldownSec: 300,
   proactive: true,
+  // Guardrail defaults: sustained >90% CPU (of one core; macOS accounting) for
+  // 5 beats, or >4GB resident. Tunable via ~/.fleet/daemon/shared-config.json.
+  cpuHogPercent: 90,
+  cpuHogBeats: 5,
+  memHogMb: 4096,
 };
 
 /** Is a recorded daemon still alive? (signal 0 = liveness probe) */

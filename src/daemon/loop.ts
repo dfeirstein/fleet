@@ -5,7 +5,19 @@
 // Each beat per Captain: reconcile, classify, take bounded auto-actions,
 // escalate anything that needs the orchestrator, refresh the sidebar.
 import { createHash } from "node:crypto";
-import { readScreen, surfaceExists, closeWorkspace, streamEvents, eventsSupported, type Target, type EventStreamHandle } from "../cmux.js";
+import {
+  readScreen,
+  surfaceExists,
+  closeWorkspace,
+  streamEvents,
+  eventsSupported,
+  topSurfaceSamples,
+  surfaceHealthEntries,
+  surfaceHealthFailure,
+  type SurfaceResourceSample,
+  type Target,
+  type EventStreamHandle,
+} from "../cmux.js";
 import { FleetEventReactor, eventsCursorFile, type EventFrame, type AckFrame } from "../events.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
@@ -23,7 +35,7 @@ import {
 } from "./config.js";
 import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-record.js";
 import { routeMessage } from "./channel.js";
-import { newMemory, evaluate, waveCompleteMessage, type DaemonMemory } from "./policy.js";
+import { newMemory, evaluate, evaluateResources, waveCompleteMessage, type DaemonMemory } from "./policy.js";
 
 /** Every Captain whose surface (pane) is still live — the set the daemon watches.
  *  Surface-level, not workspace-level: quadrant siblings share one workspace, so a
@@ -43,7 +55,35 @@ function configForCaptain(o: OrchestratorRecord, s: SharedSettings): DaemonConfi
     stuckMinutes: s.stuckMinutes,
     alertCooldownSec: s.alertCooldownSec,
     proactive: s.proactive,
+    cpuHogPercent: s.cpuHogPercent,
+    cpuHogBeats: s.cpuHogBeats,
+    memHogMb: s.memHogMb,
   };
+}
+
+// ── Resource telemetry sampling (capability-gated; shared across Captains) ──
+// `cmux top --all` and `surface-health` describe GLOBAL state while beat() runs
+// per Captain, so both are memoized: one top sweep per beat-burst, one health
+// listing per workspace per HEALTH_TTL_MS. Unsupported/failed calls memoize as
+// undefined — the guardrail no-ops and the beat is byte-identical to today.
+const TOP_TTL_MS = 1_000;
+const HEALTH_TTL_MS = 30_000;
+let topMemo: { at: number; samples: Map<string, SurfaceResourceSample> | undefined } | undefined;
+const healthMemo = new Map<string, { at: number; entries: ReturnType<typeof surfaceHealthEntries> }>();
+
+function sampledTop(now: number): Map<string, SurfaceResourceSample> | undefined {
+  if (!topMemo || now - topMemo.at >= TOP_TTL_MS) topMemo = { at: now, samples: topSurfaceSamples() };
+  return topMemo.samples;
+}
+
+function sampledHealthFailure(a: { workspaceId?: string; surfaceId?: string }, now: number): string | undefined {
+  if (!a.workspaceId || !a.surfaceId) return undefined;
+  let memo = healthMemo.get(a.workspaceId);
+  if (!memo || now - memo.at >= HEALTH_TTL_MS) {
+    memo = { at: now, entries: surfaceHealthEntries(a.workspaceId) };
+    healthMemo.set(a.workspaceId, memo);
+  }
+  return surfaceHealthFailure(memo.entries, a.surfaceId);
 }
 
 /** Run `fn` with FLEET_SESSION pinned to `session` so the registry/inbox the
@@ -79,6 +119,8 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const stuckThreshMs = cfg.stuckMinutes * 60_000;
   const cooldownMs = cfg.alertCooldownSec * 1000;
   const agents = listAgents();
+  // One resource sweep for the whole beat (undefined on older cmux → guardrail off).
+  const top = sampledTop(now);
 
   for (const a of agents) {
     if (a.status === "dead") continue;
@@ -122,11 +164,35 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
       const delivery = routeMessage(cfg, msg.text, msg.urgent);
       console.log(`[daemon] ${delivery}${msg.urgent ? " (urgent)" : ""}: ${msg.text}`);
     }
+
+    // Resource guardrails: sustained CPU / RSS breach / surface-health failure
+    // → Captain nudge, NEVER an auto-kill. Capability-gated end to end: on a
+    // cmux without system.top / surface.health both inputs are undefined and
+    // evaluateResources never fires.
+    const rmsg = evaluateResources(
+      a,
+      a.surfaceId ? top?.get(a.surfaceId) : undefined,
+      sampledHealthFailure(a, now),
+      mem,
+      now,
+      cooldownMs,
+      cfg,
+    );
+    if (rmsg) {
+      const delivery = routeMessage(cfg, rmsg.text, rmsg.urgent);
+      console.log(`[daemon] ${delivery} (guardrail): ${rmsg.text}`);
+    }
   }
 
   // Forget tracking for agents that are gone.
   for (const id of Object.keys(mem.screenSince)) {
     if (!agents.find((a) => a.agentId === id)) delete mem.screenSince[id];
+  }
+  for (const id of Object.keys(mem.cpuHighBeats)) {
+    if (!agents.find((a) => a.agentId === id)) delete mem.cpuHighBeats[id];
+  }
+  for (const id of Object.keys(mem.lastResourceAlert)) {
+    if (!agents.find((a) => a.agentId === id)) delete mem.lastResourceAlert[id];
   }
 
   // Idle initiative: when a wave that was running settles into SUSTAINED

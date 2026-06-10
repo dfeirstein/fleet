@@ -4,7 +4,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
-_(nothing pending)_
+- **One-RPC fleet snapshot + resource guardrails**: `fleet status` pre-fetches the fleet via one `extension.sidebar.snapshot` call (existence checks drop to snapshot misses; classification semantics untouched — every live worker keeps its screen read) and rows show dev-server ports + PR URLs; daemon samples `cmux top`/`surface-health` and NUDGES the Captain (never auto-kills) on sustained CPU (>90% × 5 beats), RSS (>4GB) or health failures — thresholds in daemon shared-config; `fleet doctor` reports the three capabilities + sweeps worker surface health. All capability-gated: older cmux behaves byte-identically.
 
 ## 2026-06-09
 
