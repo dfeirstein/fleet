@@ -1,10 +1,20 @@
-// Unit tests for the resource guardrails (evaluateResources): sustained-beats
-// CPU dwell, immediate RSS breach, surface-health failure, cooldown, and the
-// capability-gated no-op (undefined sample/health → never a nudge). Run with
-// `npm test`.
+// Unit tests for daemon policy (pure; no cmux). Two suites:
+//   1. Resource guardrails (evaluateResources): sustained-beats CPU dwell,
+//      immediate RSS breach, surface-health failure, cooldown, and the
+//      capability-gated no-op (undefined sample/health → never a nudge).
+//   2. Blocked-worker nudges (evaluate): RPC-steering surfacing — the daemon
+//      SURFACES a pending prompt + the ready-to-run `fleet reply` command;
+//      it never answers a prompt itself.
+// Run with `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { newMemory, evaluateResources, type ResourceThresholds } from "./policy.js";
+import {
+  evaluate,
+  evaluateResources,
+  newMemory,
+  type AgentSignal,
+  type ResourceThresholds,
+} from "./policy.js";
 
 const AGENT = { agentId: "a1", label: "worker-1" };
 const TH: ResourceThresholds = { cpuHogPercent: 90, cpuHogBeats: 5, memHogMb: 4096 };
@@ -85,4 +95,67 @@ test("a vanishing sample mid-dwell resets the CPU counter (no stale nudge)", () 
   }
   evaluateResources(AGENT, undefined, undefined, mem, (now += 1000), COOLDOWN, TH);
   assert.equal(evaluateResources(AGENT, hot, undefined, mem, (now += 1000), COOLDOWN, TH), null);
+});
+
+// ── Blocked-worker nudges: RPC-steering surfacing ────────────────────────────
+
+function blockedSignal(over: Partial<AgentSignal> = {}): AgentSignal {
+  return {
+    agentId: "agent-1",
+    label: "worker-a",
+    status: "blocked-on-you",
+    stuckMs: 0,
+    ...over,
+  };
+}
+
+test("evaluate: blocked nudge carries the prompt summary + exact fleet reply command", () => {
+  const msg = evaluate(
+    blockedSignal({
+      pendingPrompt: {
+        kind: "permission",
+        hint: "Bash: npm run db:push",
+        secondsLeft: 90,
+        replyCmd: "fleet reply agent-1 allow|deny --prompt req-1",
+        morePending: 0,
+      },
+    }),
+    newMemory(),
+    1_000_000,
+    60_000,
+    600_000,
+  );
+  assert.ok(msg);
+  assert.equal(msg.urgent, true);
+  assert.match(msg.text, /Pending permission: "Bash: npm run db:push"/);
+  assert.match(msg.text, /`fleet reply agent-1 allow\|deny --prompt req-1`/);
+  assert.match(msg.text, /~90s left/);
+});
+
+test("evaluate: closed reply window → nudge points at fleet send, not fleet reply", () => {
+  const msg = evaluate(
+    blockedSignal({
+      pendingPrompt: {
+        kind: "question",
+        hint: "Which approach?",
+        secondsLeft: 0,
+        replyCmd: "fleet reply agent-1 <option #>",
+        morePending: 2,
+      },
+    }),
+    newMemory(),
+    1_000_000,
+    60_000,
+    600_000,
+  );
+  assert.ok(msg);
+  assert.match(msg.text, /window closed/);
+  assert.match(msg.text, /fleet send agent-1/);
+  assert.match(msg.text, /\+2 more pending/);
+});
+
+test("evaluate: blocked without prompt detail renders the plain nudge as before", () => {
+  const msg = evaluate(blockedSignal(), newMemory(), 1_000_000, 60_000, 600_000);
+  assert.ok(msg);
+  assert.equal(msg.text, "worker-a is blocked on you — needs a decision.");
 });

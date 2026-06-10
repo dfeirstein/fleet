@@ -5,6 +5,7 @@ import { workspaceExists, sidebarSnapshot, type WorkspaceSidebarInfo } from "../
 import { probeStatus } from "../status.js";
 import { listNotifications, indexNotifications, notificationFor, turnEnded, type CmuxNotification } from "../notifications.js";
 import { pendingBlocks, type PendingBlock } from "../events.js";
+import { realCwd } from "./prompts.js";
 import { doneSignalFresh } from "../quiescence.js";
 
 const ICON: Record<string, string> = {
@@ -30,6 +31,9 @@ export interface FleetRow {
   /** Cheap proof flag for the done-without-proof diagnostic (no gate execution):
    *  "none" = idle with nothing attached; "claimed" = idle with proof(s). */
   proof?: "none" | "claimed";
+  /** The pending Feed prompt kind behind a blocked-on-you row (question/
+   *  permission/plan) — answerable via `fleet reply` while in the 120s window. */
+  blockedKind?: string;
   /** When the worker was last given work — the stable-idle dwell (watch/daemon)
    *  refuses to declare quiescence while any dispatch is this fresh. */
   lastDispatchAt: string;
@@ -124,6 +128,7 @@ export function snapshot(): FleetRow[] {
   for (const a of listAgents()) {
     const pre = prefetchFromSnapshot(a.workspaceId, sidebar);
     let status: string = a.status;
+    const block = agentBlock(a, blocks);
     const exists = pre.exists ?? (existenceReads++, workspaceExists(handle(a)));
     if (!exists) {
       status = "dead";
@@ -136,7 +141,7 @@ export function snapshot(): FleetRow[] {
       screenReads++;
       status = classifyLive({
         probe: probeStatus(target(a)).status,
-        hasBlock: agentHasBlock(a, blocks),
+        hasBlock: !!block,
         notif: notificationFor(notifs, a.surfaceId, a.workspaceId ?? a.workspace),
         lastDispatchAt: a.lastDispatchAt,
         doneSignal: doneSignalFresh(a.doneSignalAt, a.lastDispatchAt),
@@ -156,6 +161,7 @@ export function snapshot(): FleetRow[] {
       status,
       task: a.task,
       proof,
+      blockedKind: status === "blocked-on-you" ? block?.kind : undefined,
       lastDispatchAt: a.lastDispatchAt,
       ports: pre.ports.length ? pre.ports : undefined,
       prUrls: pre.prUrls.length ? pre.prUrls : undefined,
@@ -173,9 +179,13 @@ export function snapshot(): FleetRow[] {
 }
 
 /** A pending feed block belongs to a worker if its cwd matches the worker's
- *  cwd or its worktree path (feed items carry the claude session's cwd). */
-function agentHasBlock(a: Agent, blocks: PendingBlock[]): boolean {
-  return blocks.some((b) => !!b.cwd && (b.cwd === a.cwd || b.cwd === a.worktree?.path));
+ *  cwd or its worktree path (feed items carry the claude session's RESOLVED
+ *  cwd, so compare symlink-proof — /tmp vs /private/tmp). */
+function agentBlock(a: Agent, blocks: PendingBlock[]): PendingBlock | undefined {
+  return blocks.find((b) => {
+    const cwd = realCwd(b.cwd);
+    return !!cwd && (cwd === realCwd(a.cwd) || cwd === realCwd(a.worktree?.path));
+  });
 }
 
 export function renderTable(rows: FleetRow[]): string {
@@ -190,9 +200,11 @@ export function renderTable(rows: FleetRow[]): string {
     const flag =
       r.status === "undispatched"
         ? "⚠ brief NOT dispatched — fleet send it "
-        : r.proof === "none"
-          ? "⚠ done (no proof) "
-          : "";
+        : r.blockedKind
+          ? `◍ ${r.blockedKind} pending — fleet reply `
+          : r.proof === "none"
+            ? "⚠ done (no proof) "
+            : "";
     const task = r.task.length > 50 ? r.task.slice(0, 47) + "..." : r.task;
     // Snapshot enrichment: dev-server ports + PR URLs, where the one-RPC
     // sidebar snapshot had them (absent on older cmux — column just omitted).

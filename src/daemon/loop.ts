@@ -14,6 +14,7 @@ import {
   topSurfaceSamples,
   surfaceHealthEntries,
   surfaceHealthFailure,
+  feedRepliesSupported,
   type SurfaceResourceSample,
   type Target,
   type EventStreamHandle,
@@ -21,6 +22,8 @@ import {
 import { FleetEventReactor, eventsCursorFile, type EventFrame, type AckFrame } from "../events.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
+import { pendingPromptsFor, type AgentPrompt } from "../commands/prompts.js";
+import { windowRemainingMs, replyCommandHint } from "../feed-steering.js";
 import { resume } from "../commands/resume.js";
 import { acceptBypassDialog } from "../commands/spawn.js";
 import { updateSidebar, setHeartbeat } from "../dashboard.js";
@@ -122,6 +125,19 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   // One resource sweep for the whole beat (undefined on older cmux → guardrail off).
   const top = sampledTop(now);
 
+  // RPC steering: pending Feed prompts (oldest first), so a blocked nudge can
+  // carry the prompt summary + the exact `fleet reply` command. SURFACING only
+  // — the daemon never auto-answers a prompt. Capability-gated + best-effort:
+  // without the feed RPCs (or with cmux unreachable) nudges render as before.
+  let prompts: AgentPrompt[] = [];
+  if (feedRepliesSupported()) {
+    try {
+      prompts = pendingPromptsFor(agents);
+    } catch {
+      /* cmux unreachable this tick — nudge without prompt detail */
+    }
+  }
+
   for (const a of agents) {
     if (a.status === "dead") continue;
     const t: Target = target(a);
@@ -153,8 +169,19 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     // done-without-proof candidate. Cheap (registry only) — the runnable gate
     // stays in `fleet done`/`digest`, never on the daemon's timer.
     const doneNoProof = a.status === "idle" && (a.proofs?.length ?? 0) === 0;
+    const myPrompts = prompts.filter((p) => p.agent.agentId === a.agentId);
+    const oldest = myPrompts[0]?.prompt;
+    const pendingPrompt = oldest
+      ? {
+          kind: oldest.kind,
+          hint: oldest.prompt.length > 120 ? oldest.prompt.slice(0, 117) + "..." : oldest.prompt,
+          secondsLeft: Math.max(0, Math.ceil(windowRemainingMs(oldest.createdAt, now) / 1000)),
+          replyCmd: replyCommandHint(oldest.kind, a.agentId, oldest.requestId),
+          morePending: myPrompts.length - 1,
+        }
+      : undefined;
     const msg = evaluate(
-      { agentId: a.agentId, label: a.label, status: a.status, stuckMs, doneNoProof },
+      { agentId: a.agentId, label: a.label, status: a.status, stuckMs, doneNoProof, pendingPrompt },
       mem,
       now,
       cooldownMs,
