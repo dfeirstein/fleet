@@ -124,7 +124,9 @@ export function evaluate(
   } else if (sig.status === "error") {
     cond = "error";
     urgent = true;
-    text = `${sig.label} hit an error.`;
+    // fail → investigate: don't just re-dispatch a failed worker; root-cause it
+    // and record the lesson first (the missing per-failure step from the bench).
+    text = `${sig.label} hit an error — investigate and log the root cause before re-dispatching, don't just retry.`;
   } else if (sig.status === "rate-limited") {
     cond = "rate";
     urgent = false;

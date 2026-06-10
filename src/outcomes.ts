@@ -11,7 +11,7 @@
 // NEVER break the command that produced them.
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { mkdirSync, appendFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, appendFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { sessionId } from "./registry.js";
 
 export type OutcomeEvent = "spawn" | "verify" | "kill" | "complete";
@@ -87,6 +87,35 @@ export function readOutcomes(session?: string): OutcomeRecord[] {
       out.push(JSON.parse(t) as OutcomeRecord);
     } catch {
       // skip a torn final line
+    }
+  }
+  return out;
+}
+
+/**
+ * Raw lines from EVERY session's outcome log (`~/.fleet/*.outcomes.jsonl`), for
+ * the cross-session per-project gain view — a project (cwd) accrues delegations
+ * across many sessions. Lines are returned verbatim (not parsed) so the gain
+ * aggregator owns malformed-line counting and can report it. Tolerant: a missing
+ * dir or an unreadable file is skipped, never thrown.
+ */
+export function readAllOutcomeLines(): string[] {
+  const dir = join(homedir(), ".fleet");
+  let files: string[];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".outcomes.jsonl"));
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const f of files) {
+    try {
+      const body = readFileSync(join(dir, f), "utf8");
+      for (const line of body.split("\n")) {
+        if (line.trim()) out.push(line);
+      }
+    } catch {
+      // skip an unreadable file
     }
   }
   return out;
