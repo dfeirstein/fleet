@@ -159,3 +159,16 @@ test("evaluate: blocked without prompt detail renders the plain nudge as before"
   assert.ok(msg);
   assert.equal(msg.text, "worker-a is blocked on you — needs a decision.");
 });
+
+test("evaluate: a failed (error) worker is nudged to investigate the root cause before re-dispatching", () => {
+  const msg = evaluate(blockedSignal({ status: "error" }), newMemory(), 1_000_000, 60_000, 600_000);
+  assert.ok(msg);
+  assert.match(msg.text, /investigate and log the root cause before re-dispatching/);
+  assert.match(msg.text, /don't just retry/);
+  assert.ok(msg.urgent);
+});
+
+test("evaluate: the investigate nudge is failure-only — a routine idle worker stays silent", () => {
+  const msg = evaluate(blockedSignal({ status: "idle" }), newMemory(), 1_000_000, 60_000, 600_000);
+  assert.equal(msg, null);
+});

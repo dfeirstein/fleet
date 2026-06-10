@@ -4,7 +4,8 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
-_(nothing pending)_
+### Added
+- **Outcomes gain view + per-failure investigate nudge** (CL-Bench rec #5 + the "investigate is not per-failure" gap): new pure module `src/outcomes-gain.ts` (`node:test` coverage) aggregates the cross-session outcome log per project into time-bucketed (UTC-day) failure rates, a repeat-failure signal (exact normalized-text match on `label │ check`, stated as non-semantic), and a fail-closed trend verdict (`<2` graded buckets → `insufficient-data`); corrupt log lines are counted (`malformed`), never silently dropped. Wired as `fleet outcomes --gain [--cwd P] [--json]` (default `fleet outcomes` unchanged). The daemon's failure (error) escalation now tells the Captain to investigate and log the root cause before re-dispatching, not just retry. (#PR)
 
 ## 2026-06-10
 

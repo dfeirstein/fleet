@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 // fleet — Claude-Code-driven multi-agent orchestrator on cmux.
 // Phase 0–1 surface: spawn, read, send, status, kill.
+import { resolve } from "node:path";
 import { spawn, SPAWN_DEFAULTS, type SpawnOptions } from "./commands/spawn.js";
 import { grid, parseGrid, type GridOptions } from "./commands/grid.js";
 import { read, readBrowserScreenshot } from "./commands/read.js";
@@ -20,7 +21,8 @@ import { done } from "./commands/done.js";
 import { bootstrap } from "./commands/bootstrap.js";
 import { currency } from "./commands/currency.js";
 import { auditDocs } from "./commands/audit-docs.js";
-import { readOutcomes } from "./outcomes.js";
+import { readOutcomes, readAllOutcomeLines } from "./outcomes.js";
+import { gainReport } from "./outcomes-gain.js";
 import { digest, renderDigests } from "./commands/digest.js";
 import { recall } from "./commands/recall.js";
 import { profile } from "./commands/profile.js";
@@ -165,6 +167,9 @@ Commands:
                                              from the outcome log — load it on re-entry
   outcomes [--tail N] [--json]               Show the delegation-outcome log
                                              (the trajectory store; spawn/verify/kill)
+  outcomes --gain [--cwd P] [--json]         Per-project gain view: failure rate
+                                             bucketed over time, repeat-failure
+                                             signal, trend verdict (memory paying off?)
   capture <name> --from <agent>              Promote a worker into a reusable skill
         [--verify <check>]                   gate it: pass→active, fail→quarantined
                                              (no check → provisional)
@@ -530,6 +535,44 @@ async function main(): Promise<void> {
       break;
     }
     case "outcomes": {
+      if (flags.gain === true) {
+        // Cross-session, per-project aggregation (the gain view). --cwd P scopes
+        // to one project (resolved to an absolute path to match recorded cwds).
+        const cwd = str(flags.cwd) ? resolve(str(flags.cwd)!) : undefined;
+        const report = gainReport(readAllOutcomeLines(), { cwd });
+        if (flags.json === true) {
+          console.log(JSON.stringify(report, null, 2));
+          break;
+        }
+        if (report.projects.length === 0) {
+          console.log(
+            cwd
+              ? `no outcomes logged for ${cwd} yet`
+              : "no outcomes logged yet (spawn/verify/kill a worker to populate the log)",
+          );
+          if (report.malformed > 0) console.log(`⚠ ${report.malformed} malformed log line(s) skipped`);
+          break;
+        }
+        for (const p of report.projects) {
+          console.log(`\n${p.project}`);
+          console.log(`  trend: ${p.verdict}`);
+          for (const b of p.buckets) {
+            const rate = b.failureRate === null ? "  —  " : `${String(Math.round(b.failureRate * 100)).padStart(3)}%`;
+            console.log(
+              `  ${b.key}  fail-rate ${rate}  (${b.fails} fail / ${b.completes} complete, ${b.delegations} delegated)`,
+            );
+          }
+          if (p.repeatFailures.length > 0) {
+            console.log(`  repeat failures (same label │ check seen ≥2×; exact normalized-text match, not semantic):`);
+            for (const rf of p.repeatFailures) {
+              console.log(`    ${rf.count}×  ${rf.signature}  [${rf.dates.join(", ")}]`);
+            }
+          }
+        }
+        console.log(`\nbuckets are UTC calendar days; failure rate = fails / (fails + completes).`);
+        if (report.malformed > 0) console.log(`⚠ ${report.malformed} malformed log line(s) skipped`);
+        break;
+      }
       const all = readOutcomes(str(flags.session));
       const n = str(flags.tail) ? Number(str(flags.tail)) : 20;
       const rows = all.slice(-n);
