@@ -118,7 +118,10 @@ Commands:
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
        [--browser-screenshot <out.png>]     (or screenshot its --with-browser pane)
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
-  status                                     Snapshot fleet table
+  status                                     Snapshot fleet table (one sidebar-
+                                             snapshot RPC pre-fetches the fleet
+                                             where supported; rows show dev-server
+                                             ports + PR URLs when known)
   verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator;
                                              a PASSING check auto-attaches as proof)
   verify <agent> --visual <url>              Browser-backed gate: load the page in a
@@ -189,7 +192,11 @@ Commands:
                                              --model pins the Captain's model,
                                              e.g. claude-fable-5)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
-                                             stuck/zombie detection, escalations
+                                             stuck/zombie detection, resource
+                                             guardrails (sustained-CPU/RSS/health
+                                             nudges — never auto-kill; thresholds
+                                             in ~/.fleet/daemon/shared-config.json),
+                                             escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
                                              (bridge for /schedule routines)
   prompts [agent]                            List pending Feed prompts (permission/
