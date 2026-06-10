@@ -30,6 +30,7 @@ import { reflect } from "./commands/reflect.js";
 import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
+import { logMilestone } from "./commands/log.js";
 import { notifyOrchestrator } from "./commands/notify.js";
 import { prompts } from "./commands/prompts.js";
 import { reply } from "./commands/reply.js";
@@ -115,6 +116,8 @@ Commands:
         [--cwd P] [--label N] [--gated|--yolo] worker panes (shared filesystem).
                                              With a task, all panes run it; else
                                              they idle for per-pane 'fleet send'.
+                                             One atomic new-workspace --layout call
+                                             when supported (legacy splits otherwise).
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
        [--browser-screenshot <out.png>]     (or screenshot its --with-browser pane)
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
@@ -178,9 +181,15 @@ Commands:
                                              prints transitions + sidebar dash
         [--no-until-idle]                    Keep watching (don't exit on idle)
   kill <agent | --all>                       Stop a worker and clean up
-  setup [--hotkey]                           Link fleet onto PATH + install skill
+                                             (also prunes sidebar-group membership)
+  log <message...> [--level <l>] [--source <s>]  Drop a Captain milestone into cmux's
+        [--workspace <ws>]                   sidebar activity log (info|progress|
+                                             success|warning|error)
+  setup [--hotkey] [--dock]                  Link fleet onto PATH + install skill
                                              (--hotkey also binds ⌘⇧Y in cmux.json
-                                             → spawn a sibling Captain)
+                                             → spawn a sibling Captain; --dock pins
+                                             fleet watch + cmux feed tui into the
+                                             project's .cmux/dock.json)
   doctor                                     Diagnose the install (cmux/PATH/…)
   orchestrate|captain [name] [--resume]      Appoint a Fleet Captain — a badged
         [--split] [--model M]                control-plane workspace you talk to
@@ -295,7 +304,15 @@ async function main(): Promise<void> {
       break;
     }
     case "setup": {
-      setup({ hotkey: flags.hotkey === true });
+      setup({ hotkey: flags.hotkey === true, dock: flags.dock === true });
+      break;
+    }
+    case "log": {
+      const msg = positionals.join(" ").trim();
+      if (!msg) return fail("log requires a <message>");
+      if (logMilestone(msg, { level: str(flags.level), source: str(flags.source), workspace: str(flags.workspace) })) {
+        console.log("logged");
+      }
       break;
     }
     case "doctor": {

@@ -20,6 +20,7 @@ import {
   type Target,
 } from "../cmux.js";
 import { upsert, remove, patch, listAgents, sessionId, type Agent } from "../registry.js";
+import { ensureWorkerGrouped } from "../sidebar.js";
 import { appendOutcome } from "../outcomes.js";
 import { refreshCapture } from "../capture-log.js";
 import { homedir } from "node:os";
@@ -333,6 +334,11 @@ export function spawn(opts: SpawnOptions): Agent {
       remove(agentId);
       throw err;
     }
+
+    // Mission control: put the fresh worker workspace into the session's
+    // sidebar group (grouped spawns above join a workspace already in it).
+    // Best-effort + capability-gated — never blocks a spawn.
+    ensureWorkerGrouped(sessionId(), ws.workspaceId);
   }
 
   // Companion browser pane (--with-browser). Opened AFTER the terminal surface

@@ -12,6 +12,8 @@ import {
   mergeSpawnCaptainAction,
   SPAWN_CAPTAIN_ACTION,
 } from "../cmux-config.js";
+import { dockConfigPath, mergeDockControls, FLEET_DOCK_CONTROLS } from "../dock-config.js";
+import { repoRoot as gitRepoRoot } from "../git.js";
 
 function repoRoot(): string {
   // src/commands/setup.ts → ../../ = repo root
@@ -97,7 +99,39 @@ function installHotkey(): void {
   console.log("  ↳ Change the key by editing actions.fleet.spawnCaptain.shortcut in your cmux.json.");
 }
 
-export function setup(opts: { hotkey?: boolean } = {}): void {
+/**
+ * Pin the fleet mission-control panel into the project's cmux Dock: merge the
+ * `fleet watch` + `cmux feed tui` controls into `.cmux/dock.json` (JSONC-safe,
+ * backed up, idempotent — user controls preserved). Opt-in via `--dock`.
+ */
+function installDock(): void {
+  const project = gitRepoRoot(process.cwd()) ?? process.cwd();
+  const path = dockConfigPath(project);
+  console.log(`\ndock  (.cmux/dock.json — fleet watch + cmux feed tui)`);
+
+  let config: Record<string, unknown>;
+  if (existsSync(path)) {
+    const backup = `${path}.${backupStamp()}.bak`;
+    copyFileSync(path, backup);
+    console.log(`  ✓ backed up → ${backup}`);
+    try {
+      config = parseJsonc(readFileSync(path, "utf8"));
+    } catch (err) {
+      console.log(`  ⚠ could not parse ${path} as JSONC (${(err as Error).message}). Left it untouched; backup kept.`);
+      return;
+    }
+  } else {
+    mkdirSync(dirname(path), { recursive: true });
+    config = {};
+    console.log(`  ✓ no dock.json yet — creating ${path}`);
+  }
+
+  writeFileSync(path, JSON.stringify(mergeDockControls(config), null, 2) + "\n");
+  for (const c of FLEET_DOCK_CONTROLS) console.log(`  ✓ pinned "${c.title}" → \`${c.command}\``);
+  console.log("  ↳ open the right sidebar's Dock in cmux; it asks to trust the project config on first use.");
+}
+
+export function setup(opts: { hotkey?: boolean; dock?: boolean } = {}): void {
   const root = repoRoot();
   const home = homedir();
   console.log("fleet setup");
@@ -112,6 +146,7 @@ export function setup(opts: { hotkey?: boolean } = {}): void {
   }
 
   if (opts.hotkey) installHotkey();
+  if (opts.dock) installDock();
 
   console.log("\nNext:  fleet doctor   then   fleet orchestrate <name>");
 }

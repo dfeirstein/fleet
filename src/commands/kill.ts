@@ -2,7 +2,8 @@
 import { existsSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { sendKey, closeWorkspace, closeSurface, workspaceExists } from "../cmux.js";
-import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
+import { listAgents, resolveAgent, remove, handle, target, sessionId, type Agent } from "../registry.js";
+import { ungroupWorkspace, dropEmptyFleetGroup } from "../sidebar.js";
 import { hasChanges, commitAll, removeWorktree } from "../git.js";
 import { appendOutcome } from "../outcomes.js";
 import { removeCapture } from "../capture-log.js";
@@ -41,6 +42,7 @@ function killOne(agent: Agent): void {
       // terminal may already be gone
     }
     if (agent.ownsWorkspace) {
+      ungroupWorkspace(h); // sidebar-group cleanup before the workspace goes away
       closeWorkspace(h);
     } else {
       // Shared (grid) member. If others remain, close just this pane; if this is
@@ -48,6 +50,7 @@ function killOne(agent: Agent): void {
       // last surface, so don't try).
       const others = listAgents().filter((a) => a.agentId !== agent.agentId && sharesWorkspace(a, agent));
       if (others.length === 0) {
+        ungroupWorkspace(h);
         try {
           closeWorkspace(h);
         } catch {
@@ -116,11 +119,15 @@ export function kill(idOrLabel: string): Agent {
   const agent = resolveAgent(idOrLabel);
   if (!agent) throw new Error(`no agent matching "${idOrLabel}" (try \`fleet status\`)`);
   killOne(agent);
+  // Last worker gone → delete the session's now-empty sidebar group (closes
+  // the fleet-owned anchor header). Guarded: only an anchor-only group dies.
+  if (listAgents().length === 0) dropEmptyFleetGroup(sessionId());
   return agent;
 }
 
 export function killAll(): number {
   const agents = listAgents();
   for (const a of agents) killOne(a);
+  if (listAgents().length === 0) dropEmptyFleetGroup(sessionId());
   return agents.length;
 }

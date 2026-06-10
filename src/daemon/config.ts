@@ -38,6 +38,10 @@ export interface DaemonConfig {
   cpuHogPercent: number;
   cpuHogBeats: number;
   memHogMb: number;
+  /** Sidebar state-lamp overrides (state → color/label), merged over the
+   *  defaults in src/sidebar.ts — partial configs keep the rest. */
+  sidebarColors?: Record<string, string>;
+  sidebarLabels?: Record<string, string>;
 }
 
 export function daemonDir(): string {

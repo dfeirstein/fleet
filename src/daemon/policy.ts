@@ -24,6 +24,9 @@ export interface DaemonMemory {
    *  lastAlert: evaluate() clears that map whenever STATUS is healthy, which
    *  would wipe a resource cooldown mid-breach and re-nag every beat. */
   lastResourceAlert: Record<string, Record<string, number>>;
+  /** workspace → last-applied sidebar paint fingerprint (color|description),
+   *  so the state-lamp sync only writes on CHANGE, never per-beat repaints. */
+  sidebarPaint: Record<string, string>;
 }
 
 export function newMemory(): DaemonMemory {
@@ -34,6 +37,7 @@ export function newMemory(): DaemonMemory {
     idleDwell: new IdleDwell(),
     cpuHighBeats: {},
     lastResourceAlert: {},
+    sidebarPaint: {},
   };
 }
 

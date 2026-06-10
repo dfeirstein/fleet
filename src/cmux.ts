@@ -945,3 +945,137 @@ export function feedReplyExitPlan(requestId: string, mode: ExitPlanReplyMode, fe
   if (feedback !== undefined) params.feedback = feedback;
   cmux(["rpc", "feed.exit_plan.reply", JSON.stringify(params)]);
 }
+
+// ── Mission-control surfaces (sidebar groups, colors, log, atomic layout) ────
+// Verified live (cmux 0.64.12, 2026-06-09):
+//   - `workspace-group create --name N --from <ws>` creates a NEW anchor
+//     workspace (the group header) and adds <ws> as a member — so fleet OWNS
+//     the anchor and worker kills can never dissolve the group (the documented
+//     anchor-dissolve footgun).
+//   - `new-workspace --layout '<json>'` creates every pane in ONE call; pane
+//     enumeration (list-panes) follows the layout tree depth-first; each
+//     surface's `command` is typed+submitted by cmux itself.
+//   - `workspace-action`/`workspace-group` gate on `cmux capabilities` methods
+//     ("workspace.action", "workspace.group.*") via the shared rpcMethods()
+//     cache above; `log` and `--layout` are CLI-side, so they gate on the
+//     cached help text like wait-for/pipe-pane.
+
+/** True iff this cmux supports workspace context-menu actions (set-color etc.). */
+export function workspaceActionsSupported(): boolean {
+  return rpcMethods().has("workspace.action");
+}
+
+/** True iff this cmux supports sidebar workspace groups. */
+export function workspaceGroupsSupported(): boolean {
+  return rpcMethods().has("workspace.group.create") && rpcMethods().has("workspace.group.add");
+}
+
+/** True iff `new-workspace` accepts `--layout <json>` (atomic grid spawn). */
+export function layoutSupported(): boolean {
+  return /^\s*new-workspace\b.*--layout/m.test(helpText());
+}
+
+/** True iff this cmux build lists the sidebar `log` verb. */
+export function logVerbSupported(): boolean {
+  return helpListsVerb(helpText(), "log");
+}
+
+/** Set a workspace's sidebar color (named color or #RRGGBB). */
+export function setWorkspaceColor(workspace: string, color: string): void {
+  cmux(["workspace-action", "--action", "set-color", "--workspace", workspace, "--color", color]);
+}
+
+/** Set a workspace's sidebar description line. */
+export function setWorkspaceDescription(workspace: string, description: string): void {
+  cmux(["workspace-action", "--action", "set-description", "--workspace", workspace, "--description", description]);
+}
+
+/** Append a line to a workspace's sidebar activity log. */
+export function workspaceLog(
+  message: string,
+  opts: { level?: "info" | "progress" | "success" | "warning" | "error"; source?: string; workspace?: string } = {},
+): void {
+  const args = ["log"];
+  if (opts.level) args.push("--level", opts.level);
+  if (opts.source) args.push("--source", opts.source);
+  if (opts.workspace) args.push("--workspace", opts.workspace);
+  args.push("--", message);
+  cmux(args);
+}
+
+export interface WorkspaceGroup {
+  ref: string;
+  name: string;
+  anchorRef: string;
+  memberRefs: string[];
+}
+
+interface WorkspaceGroupListResponse {
+  groups?: { ref?: string; name?: string; anchor_workspace_ref?: string; member_workspace_refs?: string[] }[];
+}
+
+/** List the sidebar workspace groups (refs, not UUIDs — cmux's list shape). */
+export function listWorkspaceGroups(): WorkspaceGroup[] {
+  const { groups } = cmuxJson<WorkspaceGroupListResponse>(["workspace-group", "list", "--json"]);
+  return (groups ?? []).flatMap((g) =>
+    g.ref && g.name !== undefined
+      ? [{ ref: g.ref, name: g.name ?? "", anchorRef: g.anchor_workspace_ref ?? "", memberRefs: g.member_workspace_refs ?? [] }]
+      : [],
+  );
+}
+
+/** Create a sidebar group seeded with `from` workspaces; returns the group ref.
+ *  cmux creates a fresh anchor workspace named after the group — fleet owns it. */
+export function createWorkspaceGroup(name: string, from: string[]): string {
+  const args = ["workspace-group", "create", "--name", name];
+  if (from.length) args.push("--from", from.join(","));
+  const out = cmux(args);
+  const m = out.match(/workspace_group:\d+/);
+  if (!m) throw new Error(`could not parse workspace_group ref from cmux output: ${JSON.stringify(out)}`);
+  return m[0];
+}
+
+/** Add a workspace to an existing group. */
+export function addWorkspaceToGroup(group: string, workspace: string): void {
+  cmux(["workspace-group", "add", "--group", group, "--workspace", workspace]);
+}
+
+/** Remove a workspace from whatever group holds it. */
+export function removeWorkspaceFromGroup(workspace: string): void {
+  cmux(["workspace-group", "remove", "--workspace", workspace]);
+}
+
+/** Delete a group AND close every workspace inside it (cmux semantics). Callers
+ *  must verify the group is empty-but-for-the-anchor first — destructive. */
+export function deleteWorkspaceGroup(group: string): void {
+  cmux(["workspace-group", "delete", group]);
+}
+
+// ── Atomic layout spawn ──────────────────────────────────────────────────────
+
+export interface LayoutPane {
+  pane: { surfaces: { type: "terminal"; command?: string }[] };
+}
+export interface LayoutSplit {
+  direction: "horizontal" | "vertical";
+  split: number;
+  children: [LayoutNode, LayoutNode];
+}
+export type LayoutNode = LayoutPane | LayoutSplit;
+
+/** Create a workspace with a full predefined split tree in ONE call; each
+ *  surface's `command` is launched by cmux. Returns the workspace ref. */
+export function newWorkspaceLayout(opts: { name: string; cwd: string; layout: LayoutNode; focus?: boolean }): string {
+  const out = cmux([
+    "new-workspace",
+    "--name",
+    opts.name,
+    "--cwd",
+    opts.cwd,
+    "--layout",
+    JSON.stringify(opts.layout),
+    "--focus",
+    opts.focus ? "true" : "false",
+  ]);
+  return parseRef(out, "workspace");
+}
