@@ -4,8 +4,12 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+_(nothing pending)_
+
+## 2026-06-10
+
 ### Fixed
-- **`fleet resume` keep+resume alias** (#23): alive agents' sessions (resolved via the durable map) now count as claims in `planReconcile`, so a dead agent whose cwd-lane probe matches a sibling's LIVE session demotes to skip-with-warning instead of `--apply` respawning an already-running session (fail closed; unresolvable kept agents contribute no claim).
+- **`fleet resume` keep+resume alias** (#24, closes issue #23): alive agents' sessions (resolved via the durable map) now count as claims in `planReconcile`, so a dead agent whose cwd-lane probe matches a sibling's LIVE session demotes to skip-with-warning instead of `--apply` respawning an already-running session (fail closed; unresolvable kept agents contribute no claim; contradicted workspace/surface attributions claim nothing — a mis-attributed record can't falsely demote a genuine resume).
 
 ## 2026-06-09
 
