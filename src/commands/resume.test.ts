@@ -132,6 +132,76 @@ test("matrix: a resume offer for a session LIVE on a kept agent demotes to skip 
   }
 });
 
+test("matrix: a kept agent's contradicted cwd-lane match claims nothing — the dead owner's resume survives", () => {
+  // Inverse mis-attribution: alive A's session never reached the durable map,
+  // and A shares cwd /shared with dead B whose session IS recorded (with B's
+  // old workspaceId). A's cwd-lane fallthrough resolves B's session — but the
+  // record's workspaceId contradicts A's own, so it is not evidence the
+  // session is live on A and must not demote B's genuinely-own resume.
+  const durable = parseHookSessions(
+    JSON.stringify({
+      version: 1,
+      sessions: {
+        "sess-b": { sessionId: "sess-b", workspaceId: "WS-B", cwd: "/shared" },
+      },
+    }),
+  )!;
+  const decisions = planReconcile(
+    [
+      cand({
+        agentId: "alive-a",
+        label: "alive-a",
+        alive: true,
+        surfaceId: "SURF-A",
+        workspaceId: "WS-A",
+        cwds: ["/shared"],
+      }),
+      cand({ agentId: "dead-b", label: "dead-b", workspaceId: "WS-B", cwds: ["/shared"] }),
+    ],
+    durable,
+  );
+  assert.equal(decisions[0]?.action, "keep");
+  assert.equal(decisions[1]?.action, "resume"); // no lying live-collision demotion
+});
+
+test("matrix: duplicate-claimed AND live-claimed → the live-collision message wins (more diagnostic)", () => {
+  const live = parseHookSessions(
+    JSON.stringify({
+      version: 1,
+      sessions: {
+        "sess-live": {
+          sessionId: "sess-live",
+          workspaceId: "WS-LIVE",
+          surfaceId: "SURF-LIVE",
+          cwd: "/shared",
+        },
+      },
+    }),
+  )!;
+  const decisions = planReconcile(
+    [
+      cand({
+        agentId: "alive-a",
+        label: "alive-a",
+        alive: true,
+        surfaceId: "SURF-LIVE",
+        workspaceId: "WS-LIVE",
+        cwds: ["/shared"],
+      }),
+      // Both dead siblings cwd-match the same live session → n=2 duplicate
+      // claim AND a live claim; the message should say where the session is.
+      cand({ agentId: "dead-b", label: "dead-b", cwds: ["/shared"] }),
+      cand({ agentId: "dead-c", label: "dead-c", cwds: ["/shared"] }),
+    ],
+    live,
+  );
+  assert.equal(decisions[0]?.action, "keep");
+  for (const d of decisions.slice(1)) {
+    assert.equal(d.action, "skip");
+    if (d.action === "skip") assert.match(d.note, /already live on agent alive-a/);
+  }
+});
+
 test("matrix: a kept agent with no resolvable session contributes no claim (no false demotion)", () => {
   const decisions = planReconcile(
     [

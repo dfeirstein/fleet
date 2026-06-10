@@ -138,20 +138,21 @@ export function planReconcile(
         workspaceId: c.workspaceId,
         cwds: c.cwds,
       });
-      if (sess) liveClaims.set(sess.sessionId, c.agentId);
+      if (!sess) continue;
+      // A cwd-lane fallthrough can mis-attribute a SIBLING's session to the
+      // kept agent (the kept agent's own session never reached the map). If
+      // the record names a surface/workspace and the kept agent's differs,
+      // the attribution is contradicted — not evidence the session is live
+      // on this agent, so it must not demote anyone else's resume.
+      if (sess.surfaceId && c.surfaceId && sess.surfaceId !== c.surfaceId) continue;
+      if (sess.workspaceId && c.workspaceId && sess.workspaceId !== c.workspaceId) continue;
+      liveClaims.set(sess.sessionId, c.agentId);
     }
   }
   return decisions.map((d) => {
     if (d.action !== "resume") return d;
-    const n = claims.get(d.sessionId) ?? 0;
-    if (n > 1) {
-      return {
-        agentId: d.agentId,
-        label: d.label,
-        action: "skip" as const,
-        note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
-      };
-    }
+    // The live-collision message wins over the generic duplicate-claim one:
+    // "already live on agent X" tells the user exactly where the session is.
     const liveAgent = liveClaims.get(d.sessionId);
     if (liveAgent) {
       return {
@@ -159,6 +160,15 @@ export function planReconcile(
         label: d.label,
         action: "skip" as const,
         note: `durable session ${d.sessionId} is already live on agent ${liveAgent} — not resuming it elsewhere (fail closed)`,
+      };
+    }
+    const n = claims.get(d.sessionId) ?? 0;
+    if (n > 1) {
+      return {
+        agentId: d.agentId,
+        label: d.label,
+        action: "skip" as const,
+        note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
       };
     }
     return d;
