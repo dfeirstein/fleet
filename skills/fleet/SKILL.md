@@ -65,7 +65,9 @@ fleet recall <query...> [--cwd P] [--qmd]         Search the durable store (grep
                                                 --qmd for semantic, if QMD set up)
 fleet profile [--cwd P]                           Per-project profile to load on re-entry
 fleet outcomes [--tail N] [--json]                The delegation-outcome trajectory log
-fleet resume                                    Reconcile registry vs live cmux
+fleet resume [--apply]                          Reconcile registry vs live cmux; after a
+                                                cmux restart, prints each restorable
+                                                worker's claude --resume (--apply respawns)
 fleet daemon <start|stop|status>                Always-on supervisor (heartbeat)
 fleet notify-orchestrator <msg> [--urgent]      Push a message to this orchestrator
 ```

@@ -4,7 +4,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
-_(nothing pending)_
+- **Restart-proof fleets via cmux's durable session map**: typed reader for `~/.cmuxterm/claude-hook-sessions.json` (`src/cmux-sessions.ts`, untrusted-input validation), reactor session↔workspace map warmed at startup (cold-map fix), `fleet resume --apply` reconciles the registry against the durable file after a cmux restart (prints/respawns exact `claude --resume` invocations; prunes only untraceable workers, with a note), durable `agentLifecycle` as the weakest `fleet status` input (probe-running always wins), `fleet doctor` durable-map check.
 
 ## 2026-06-09
 

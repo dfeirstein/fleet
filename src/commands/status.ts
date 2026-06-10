@@ -6,6 +6,7 @@ import { probeStatus } from "../status.js";
 import { listNotifications, indexNotifications, notificationFor, turnEnded, type CmuxNotification } from "../notifications.js";
 import { pendingBlocks, type PendingBlock } from "../events.js";
 import { doneSignalFresh } from "../quiescence.js";
+import { readHookSessions, findSession, lifecycleHint, type DurableSessionMap } from "../cmux-sessions.js";
 
 const ICON: Record<string, string> = {
   running: "●",
@@ -61,15 +62,36 @@ export function classifyLive(input: {
    *  screen evidence in the precedence, so it can only settle an ambiguous
    *  quiet screen, never contradict a visible one. */
   doneSignal?: boolean;
+  /** Lifecycle hint from cmux's durable hook-sessions file (see lifecycleHint
+   *  in cmux-sessions.ts). The WEAKEST input: consulted only when everything
+   *  above fell through to an `unknown` probe — it can settle an ambiguous
+   *  screen but never overrides a probe, block, done-signal, or notification. */
+  durable?: Extract<AgentStatus, "running" | "idle" | "awaiting-input">;
 }): AgentStatus {
-  const { probe, hasBlock, notif, lastDispatchAt, doneSignal } = input;
+  const { probe, hasBlock, notif, lastDispatchAt, doneSignal, durable } = input;
   if (probe === "rate-limited" || probe === "error") return probe;
   if (hasBlock) return "blocked-on-you";
   if (probe === "awaiting-input") return "awaiting-input";
   if (probe === "running") return "running";
   if (doneSignal) return "idle";
   if (turnEnded(notif, lastDispatchAt)) return "idle";
+  if (probe === "unknown" && durable) return durable;
   return probe;
+}
+
+/** The durable-lifecycle hint for one agent (undefined when the file is absent
+ *  or the agent has no trace — everything behaves as before). */
+function durableHint(
+  a: Agent,
+  durable: DurableSessionMap | undefined,
+): Extract<AgentStatus, "running" | "idle" | "awaiting-input"> | undefined {
+  if (!durable) return undefined;
+  const s = findSession(durable, {
+    surfaceId: a.surfaceId,
+    workspaceId: a.workspaceId,
+    cwds: [a.worktree?.path, a.cwd],
+  });
+  return s ? lifecycleHint(s, Date.now()) : undefined;
 }
 
 /** Reconcile + classify every agent. Updates the registry as a side effect.
@@ -84,6 +106,9 @@ export function snapshot(): FleetRow[] {
   // map). Empty/unsupported cmux → [] → the screen heuristic's awaiting-input
   // remains the fallback for the same lane (decision #2).
   const blocks = pendingBlocks();
+  // One more (weak) input: cmux's durable per-session lifecycle, read once for
+  // the whole snapshot. Missing/corrupt file → undefined → exactly as before.
+  const durable = readHookSessions();
   for (const a of listAgents()) {
     let status: string = a.status;
     if (!workspaceExists(handle(a))) {
@@ -100,6 +125,7 @@ export function snapshot(): FleetRow[] {
         notif: notificationFor(notifs, a.surfaceId, a.workspaceId ?? a.workspace),
         lastDispatchAt: a.lastDispatchAt,
         doneSignal: doneSignalFresh(a.doneSignalAt, a.lastDispatchAt),
+        durable: durableHint(a, durable),
       });
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });

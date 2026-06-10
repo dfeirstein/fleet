@@ -185,6 +185,7 @@ function watchEventDriven(opts: WatchOptions): Promise<void> {
     };
 
     const reactor = new FleetEventReactor({ onGap: () => reconcile(true) });
+    reactor.warmSessionMap(); // cold-map fix: attribute feed items pre-first-agent.hook
     const stream: EventStreamHandle = streamEvents({
       onAck: (a) => reactor.handleAck(a as AckFrame),
       onFrame: (f) => {

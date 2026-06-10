@@ -258,6 +258,10 @@ export function runLoop(): void {
         doBeat();
       },
     });
+    // Warm the cold session↔workspace map from cmux's durable hook-sessions
+    // file, so feed attribution works before the first live agent.hook frame.
+    const warmed = reactor.warmSessionMap();
+    if (warmed) console.log(`[daemon] warmed session map from durable hook-sessions (${warmed} session(s))`);
     try {
       events = streamEvents({
         cursorFile: eventsCursorFile(),
