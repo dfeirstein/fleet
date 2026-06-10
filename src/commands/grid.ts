@@ -176,16 +176,23 @@ function gridViaLayout(opts: GridOptions, plans: CellPlan[]): { wsRef: string; c
   // Focused, like the legacy path: makes the panes' PTYs boot promptly and lets
   // the user watch the swarm.
   const wsRef = newWorkspaceLayout({ name: opts.labelPrefix, cwd: opts.cwd, layout, focus: true });
-  const cells = listGridCells(wsRef);
-  if (cells.length !== plans.length) {
+  // ANY failure past creation (cell enumeration throwing, wrong pane count)
+  // must close the layout workspace before the caller falls back, or the
+  // legacy path would build a SECOND grid next to the leaked one.
+  try {
+    const cells = listGridCells(wsRef);
+    if (cells.length !== plans.length) {
+      throw new Error(`layout produced ${cells.length} panes, expected ${plans.length}`);
+    }
+    return { wsRef, cells };
+  } catch (err) {
     try {
       closeWorkspace(wsRef);
     } catch {
-      // best-effort — don't leak a half-built workspace
+      // best-effort — don't compound the original failure
     }
-    throw new Error(`layout produced ${cells.length} panes, expected ${plans.length}`);
+    throw err;
   }
-  return { wsRef, cells };
 }
 
 /** Legacy path: sequential splits, then type each worker's launch line. */

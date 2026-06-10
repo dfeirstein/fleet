@@ -135,7 +135,16 @@ export function diffPaints(
   return { changed, next };
 }
 
+// One debug log per process when a mission-control verb family is missing —
+// the sync/grouping silently no-ops after that (shared flag: the first warning
+// already tells the operator this cmux build predates the sidebar surfaces).
 let warnedUnsupported = false;
+
+function warnUnsupported(what: string): void {
+  if (warnedUnsupported) return;
+  warnedUnsupported = true;
+  console.error(`[sidebar] cmux build has no ${what} — sidebar state sync/grouping disabled`);
+}
 
 /**
  * Reconcile worker-workspace colors/descriptions to the current fleet state.
@@ -145,10 +154,7 @@ let warnedUnsupported = false;
  */
 export function syncSidebar(agents: Agent[], theme: SidebarTheme, prev: Record<string, string>): Record<string, string> {
   if (!workspaceActionsSupported()) {
-    if (!warnedUnsupported) {
-      warnedUnsupported = true;
-      console.error("[sidebar] cmux build has no workspace-action verbs — sidebar state sync disabled");
-    }
+    warnUnsupported("workspace-action verbs");
     return prev;
   }
   const byWorkspace = new Map<string, SidebarWorker[]>();
@@ -188,7 +194,10 @@ export function fleetGroupName(session: string): string {
  * the group. Best-effort + capability-gated; never blocks a spawn.
  */
 export function ensureWorkerGrouped(session: string, workspace: string): void {
-  if (!workspaceGroupsSupported()) return;
+  if (!workspaceGroupsSupported()) {
+    warnUnsupported("workspace-group verbs");
+    return;
+  }
   try {
     const name = fleetGroupName(session);
     const group = listWorkspaceGroups().find((g) => g.name === name);
@@ -201,7 +210,10 @@ export function ensureWorkerGrouped(session: string, workspace: string): void {
 
 /** Drop a closing worker workspace from its group (kill cleanup). Best-effort. */
 export function ungroupWorkspace(workspace: string): void {
-  if (!workspaceGroupsSupported()) return;
+  if (!workspaceGroupsSupported()) {
+    warnUnsupported("workspace-group verbs");
+    return;
+  }
   try {
     removeWorkspaceFromGroup(workspace);
   } catch {
@@ -216,7 +228,10 @@ export function ungroupWorkspace(workspace: string): void {
  * (`workspace-group delete` closes every member — destructive otherwise).
  */
 export function dropEmptyFleetGroup(session: string): void {
-  if (!workspaceGroupsSupported()) return;
+  if (!workspaceGroupsSupported()) {
+    warnUnsupported("workspace-group verbs");
+    return;
+  }
   try {
     const name = fleetGroupName(session);
     const group = listWorkspaceGroups().find((g) => g.name === name);
