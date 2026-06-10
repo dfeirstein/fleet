@@ -103,6 +103,7 @@ export type Observation =
 const BLOCK_KINDS: Record<string, BlockedKind> = {
   question: "question",
   permission: "permission",
+  permissionRequest: "permission", // the kind live 0.64.12 actually emits (probed 2026-06-10)
   plan: "plan",
   exitPlan: "plan",
   exit_plan: "plan",

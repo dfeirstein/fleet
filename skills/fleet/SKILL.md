@@ -68,9 +68,26 @@ fleet outcomes [--tail N] [--json]                The delegation-outcome traject
 fleet resume [--apply]                          Reconcile registry vs live cmux; after a
                                                 cmux restart, prints each restorable
                                                 worker's claude --resume (--apply respawns)
+fleet log <message...> [--level <l>] [--source <s>]  Drop a Captain milestone into cmux's
+                                                sidebar activity log (breadcrumbs next to
+                                                the fleet group's state lamps)
+fleet setup --dock                              Pin fleet watch + the cmux Feed TUI into
+                                                the project's Dock (.cmux/dock.json)
 fleet daemon <start|stop|status>                Always-on supervisor (heartbeat)
 fleet notify-orchestrator <msg> [--urgent]      Push a message to this orchestrator
+fleet prompts [agent]                           List pending Feed prompts (permission/
+                                                question/plan) + the 120s reply window
+fleet reply <agent> <answer> [--prompt <id>]    Answer a pending prompt via RPC, no TUI
+                                                keystrokes (permission: allow|deny|…;
+                                                question: option # / label, other text
+                                                sent verbatim as the one selection;
+                                                plan: approve|reject); past 120s → fleet send
 ```
+
+Workers are visible in cmux's own chrome: spawn groups their workspaces under a
+"fleet: <session>" sidebar group, and the daemon syncs each workspace's color +
+description to its state (green running · grey idle+proof✓ · amber blocked/no-proof ·
+red error/no-brief · blue rate-limited) — glance at the sidebar before `fleet status`.
 
 Agents are matched by id, id-prefix, or label.
 

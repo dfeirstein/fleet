@@ -649,3 +649,433 @@ export function reloadConfig(): boolean {
     return false;
   }
 }
+
+// ── One-RPC fleet snapshot + resource telemetry ──────────────────────────────
+// `extension.sidebar.snapshot` returns every workspace's last agent message,
+// listening ports, git branches and PR URLs in ONE call; `system.top` /
+// `surface.health` expose per-surface resource + health data. All three are
+// capability-gated like events.stream: an older cmux reads as "unsupported" and
+// every consumer keeps today's per-agent fallback path (no behavior change).
+
+let cachedRpcMethods: Set<string> | undefined;
+
+/** The advertised RPC method set (cached). Fail-safe: any error → empty set,
+ *  so every gate below reads "unsupported" and consumers degrade gracefully. */
+function rpcMethods(): Set<string> {
+  if (cachedRpcMethods === undefined) {
+    try {
+      const caps = cmuxJson<{ methods?: string[] }>(["capabilities"]);
+      cachedRpcMethods = new Set(Array.isArray(caps.methods) ? caps.methods : []);
+    } catch {
+      cachedRpcMethods = new Set();
+    }
+  }
+  return cachedRpcMethods;
+}
+
+/** True iff this cmux advertises the one-call sidebar snapshot RPC. */
+export function sidebarSnapshotSupported(): boolean {
+  return rpcMethods().has("extension.sidebar.snapshot");
+}
+
+/** True iff this cmux advertises per-surface resource telemetry (`cmux top`). */
+export function topSupported(): boolean {
+  return rpcMethods().has("system.top");
+}
+
+/** True iff this cmux advertises the per-surface health probe. */
+export function surfaceHealthSupported(): boolean {
+  return rpcMethods().has("surface.health");
+}
+
+/** What the status path needs from one sidebar-snapshot workspace entry. */
+export interface WorkspaceSidebarInfo {
+  /** Workspace UUID — the join key against the registry's workspaceId. */
+  id: string;
+  ref: string;
+  /** Dev servers the workspace's processes are listening on (display strings). */
+  listeningPorts: string[];
+  pullRequestUrls: string[];
+  gitBranches: string[];
+  /** The worker's last agent message, if cmux captured one. */
+  latestConversationMessage?: string;
+}
+
+/** Render one `listening_ports` entry as ":<port>" — tolerant of the entry
+ *  being a number, numeric string, or an object with a port-ish field (the
+ *  field shape is extension-oriented and undocumented). Pure; exported for
+ *  tests. Returns undefined for anything unrecognizable (dropped). */
+export function portLabel(p: unknown): string | undefined {
+  if (typeof p === "number" && Number.isFinite(p)) return `:${p}`;
+  if (typeof p === "string" && p.trim()) return p.startsWith(":") ? p : `:${p}`;
+  if (typeof p === "object" && p !== null) {
+    const o = p as Record<string, unknown>;
+    const n = o.port ?? o.number ?? o.value;
+    if (typeof n === "number" || (typeof n === "string" && n)) return `:${n}`;
+  }
+  return undefined;
+}
+
+/** Pure mapper from the raw snapshot payload to per-workspace info, keyed for
+ *  the registry join. Tolerant: entries without a UUID are dropped; missing
+ *  fields become empty. Exported for tests. */
+export function extractSidebarWorkspaces(raw: unknown): WorkspaceSidebarInfo[] {
+  const workspaces = (raw as { workspaces?: unknown[] } | null)?.workspaces;
+  if (!Array.isArray(workspaces)) return [];
+  const out: WorkspaceSidebarInfo[] = [];
+  for (const w of workspaces) {
+    const o = w as Record<string, unknown>;
+    if (typeof o?.id !== "string" || !o.id) continue;
+    const strings = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x) : [];
+    out.push({
+      id: o.id,
+      ref: typeof o.ref === "string" ? o.ref : o.id,
+      listeningPorts: Array.isArray(o.listening_ports)
+        ? o.listening_ports.map(portLabel).filter((x): x is string => !!x)
+        : [],
+      pullRequestUrls: strings(o.pull_request_urls),
+      gitBranches: strings(o.git_branches),
+      latestConversationMessage:
+        typeof o.latest_conversation_message === "string" && o.latest_conversation_message
+          ? o.latest_conversation_message
+          : undefined,
+    });
+  }
+  return out;
+}
+
+/**
+ * One-call fleet snapshot: workspace UUID → sidebar info. Returns undefined
+ * when the verb is unsupported, the RPC fails, or FLEET_NO_SNAPSHOT is set
+ * (the kill-switch that lets a live smoke measure the before/after
+ * reads-per-beat on the same build) — callers then keep the per-agent path.
+ * NOTE: the RPC may be scoped to one window, so a workspace's ABSENCE from
+ * the map is not evidence it's gone; only presence is meaningful.
+ */
+export function sidebarSnapshot(): Map<string, WorkspaceSidebarInfo> | undefined {
+  if (process.env.FLEET_NO_SNAPSHOT) return undefined;
+  if (!sidebarSnapshotSupported()) return undefined;
+  try {
+    const raw = cmuxJson(["rpc", "extension.sidebar.snapshot"]);
+    return new Map(extractSidebarWorkspaces(raw).map((w) => [w.id, w]));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Per-surface resource usage from one `cmux top` call. */
+export interface SurfaceResourceSample {
+  /** Surface UUID — the join key against the registry's surfaceId. */
+  surfaceId: string;
+  /** macOS process accounting; can exceed 100 across cores. */
+  cpuPercent: number;
+  /** Resident set summed over the surface's process tree (≈RSS). */
+  residentBytes: number;
+}
+
+/** Pure extractor: walk `top --all --json --id-format both` output down to
+ *  surface nodes and pull each one's resources. Exported for tests. */
+export function extractTopSamples(raw: unknown): SurfaceResourceSample[] {
+  const out: SurfaceResourceSample[] = [];
+  const windows = (raw as { windows?: unknown[] } | null)?.windows;
+  if (!Array.isArray(windows)) return out;
+  for (const win of windows) {
+    const workspaces = (win as { workspaces?: unknown[] })?.workspaces;
+    if (!Array.isArray(workspaces)) continue;
+    for (const ws of workspaces) {
+      const panes = (ws as { panes?: unknown[] })?.panes;
+      if (!Array.isArray(panes)) continue;
+      for (const pane of panes) {
+        const surfaces = (pane as { surfaces?: unknown[] })?.surfaces;
+        if (!Array.isArray(surfaces)) continue;
+        for (const s of surfaces) {
+          const o = s as Record<string, unknown>;
+          if (typeof o?.id !== "string" || !o.id) continue;
+          const r = o.resources as Record<string, unknown> | undefined;
+          out.push({
+            surfaceId: o.id,
+            cpuPercent: typeof r?.cpu_percent === "number" ? r.cpu_percent : 0,
+            residentBytes: typeof r?.resident_bytes === "number" ? r.resident_bytes : 0,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** One `cmux top` sweep over every window, keyed by surface UUID. Undefined
+ *  when unsupported or the call fails — guardrails then no-op this beat. */
+export function topSurfaceSamples(): Map<string, SurfaceResourceSample> | undefined {
+  if (!topSupported()) return undefined;
+  try {
+    const raw = cmuxJson(["top", "--all", "--json", "--id-format", "both"]);
+    return new Map(extractTopSamples(raw).map((s) => [s.surfaceId, s]));
+  } catch {
+    return undefined;
+  }
+}
+
+/** One surface's entry in `surface-health --json` (extra fields preserved —
+ *  the health vocabulary is undocumented, so the failure predicate inspects
+ *  whatever negative markers a build emits). */
+export interface SurfaceHealthEntry {
+  id?: string;
+  ref?: string;
+  type?: string;
+  [k: string]: unknown;
+}
+
+/** The health listing for one workspace. Undefined when unsupported or the
+ *  call fails (fail-safe: no data is NOT a failure — death detection stays
+ *  with the existing surfaceExists/probe path). */
+export function surfaceHealthEntries(workspace: string): SurfaceHealthEntry[] | undefined {
+  if (!surfaceHealthSupported()) return undefined;
+  try {
+    const raw = cmuxJson<{ surfaces?: SurfaceHealthEntry[] }>([
+      "surface-health", "--workspace", workspace, "--json", "--id-format", "both",
+    ]);
+    return Array.isArray(raw.surfaces) ? raw.surfaces : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Pure failure predicate for a registered surface: returns a reason string
+ *  when its workspace's health listing marks it unhealthy (explicit negative
+ *  field) or no longer lists it; undefined = healthy / can't say. Exported
+ *  for tests. */
+export function surfaceHealthFailure(
+  entries: SurfaceHealthEntry[] | undefined,
+  surfaceId: string,
+): string | undefined {
+  if (!entries) return undefined; // no data — never a failure
+  const e = entries.find((x) => x.id === surfaceId);
+  if (!e) return "surface missing from its workspace's health listing";
+  if (e.healthy === false) return "surface reports healthy=false";
+  if (e.alive === false) return "surface reports alive=false";
+  if (typeof e.error === "string" && e.error) return `surface health error: ${e.error}`;
+  return undefined;
+}
+
+// ── Feed steering (RPC replies to pending prompts) ───────────────────────────
+// Typed wrappers over `cmux rpc feed.list` / `feed.*.reply` — the same code
+// path as clicking Feed buttons, replacing keystrokes-into-the-TUI for
+// unblocking workers. Param shapes verified live (0.64.12 probes, 2026-06-09)
+// and against upstream Resources/feed-tui/index.ts (fetched 2026-06-09):
+//   - feed.permission.reply {request_id, mode: once|always|all|bypass|deny}
+//   - feed.question.reply   {request_id, selections: [option LABELS, not ids]}
+//   - feed.exit_plan.reply  {request_id, mode: ultraplan|bypassPermissions|
+//                            autoAccept|manual|deny [, feedback]}
+// Footguns: the hook semaphore waits 120s max — after that the item expires and
+// the worker falls back to its in-TUI prompt (keystrokes only). A reply to a
+// bogus/expired request_id STILL returns {delivered:true}, so delivery is not
+// proof the prompt was answered — callers re-check feed.list.
+
+let cachedFeedRepliesSupported: boolean | undefined;
+
+/** True iff this cmux advertises feed.list + all three reply RPCs (cached).
+ *  Fail-safe: any error resolving capabilities reads as "unsupported" so
+ *  consumers fail with a clear message / the daemon behaves as today. */
+export function feedRepliesSupported(): boolean {
+  if (cachedFeedRepliesSupported !== undefined) return cachedFeedRepliesSupported;
+  try {
+    const caps = cmuxJson<{ methods?: string[] }>(["capabilities"]);
+    const m = new Set(caps.methods ?? []);
+    cachedFeedRepliesSupported =
+      m.has("feed.list") &&
+      m.has("feed.permission.reply") &&
+      m.has("feed.question.reply") &&
+      m.has("feed.exit_plan.reply");
+  } catch {
+    cachedFeedRepliesSupported = false;
+  }
+  return cachedFeedRepliesSupported;
+}
+
+export interface FeedQuestionOption {
+  id?: string;
+  label?: string;
+  description?: string;
+}
+
+/** A `feed.list` item with the prompt-steering fields (superset of the narrow
+ *  shape the event reactor classifies on — see src/events.ts FeedItem). */
+export interface FeedPromptItem {
+  id?: string;
+  kind?: string; // permission | question | exitPlan | toolUse | stop | …
+  status?: string; // pending | telemetry | resolved | expired
+  cwd?: string;
+  workstream_id?: string;
+  request_id?: string; // the reply key (absent on telemetry items)
+  created_at?: string; // the 120s reply window starts here
+  title?: string;
+  text?: string;
+  tool_name?: string;
+  tool_input?: string;
+  question_prompt?: string;
+  question_multi_select?: boolean;
+  question_options?: FeedQuestionOption[];
+  questions?: unknown[]; // >1 ⇒ multi-question item (refused by fleet reply)
+}
+
+/** Full feed items via the `feed.list` RPC. Throws CmuxError when cmux is
+ *  unreachable — callers that must degrade (the daemon) catch it. */
+export function feedList(): FeedPromptItem[] {
+  return cmuxJson<{ items?: FeedPromptItem[] }>(["rpc", "feed.list"]).items ?? [];
+}
+
+export type PermissionReplyMode = "once" | "always" | "all" | "bypass" | "deny";
+export type ExitPlanReplyMode = "ultraplan" | "bypassPermissions" | "autoAccept" | "manual" | "deny";
+
+/** Answer a pending PermissionRequest feed item. */
+export function feedReplyPermission(requestId: string, mode: PermissionReplyMode): void {
+  cmux(["rpc", "feed.permission.reply", JSON.stringify({ request_id: requestId, mode })]);
+}
+
+/** Answer a pending AskUserQuestion feed item (selections = option labels). */
+export function feedReplyQuestion(requestId: string, selections: string[]): void {
+  cmux(["rpc", "feed.question.reply", JSON.stringify({ request_id: requestId, selections })]);
+}
+
+/** Answer a pending ExitPlanMode feed item (deny may carry feedback text). */
+export function feedReplyExitPlan(requestId: string, mode: ExitPlanReplyMode, feedback?: string): void {
+  const params: Record<string, string> = { request_id: requestId, mode };
+  if (feedback !== undefined) params.feedback = feedback;
+  cmux(["rpc", "feed.exit_plan.reply", JSON.stringify(params)]);
+}
+
+// ── Mission-control surfaces (sidebar groups, colors, log, atomic layout) ────
+// Verified live (cmux 0.64.12, 2026-06-09):
+//   - `workspace-group create --name N --from <ws>` creates a NEW anchor
+//     workspace (the group header) and adds <ws> as a member — so fleet OWNS
+//     the anchor and worker kills can never dissolve the group (the documented
+//     anchor-dissolve footgun).
+//   - `new-workspace --layout '<json>'` creates every pane in ONE call; pane
+//     enumeration (list-panes) follows the layout tree depth-first; each
+//     surface's `command` is typed+submitted by cmux itself.
+//   - `workspace-action`/`workspace-group` gate on `cmux capabilities` methods
+//     ("workspace.action", "workspace.group.*") via the shared rpcMethods()
+//     cache above; `log` and `--layout` are CLI-side, so they gate on the
+//     cached help text like wait-for/pipe-pane.
+
+/** True iff this cmux supports workspace context-menu actions (set-color etc.). */
+export function workspaceActionsSupported(): boolean {
+  return rpcMethods().has("workspace.action");
+}
+
+/** True iff this cmux supports sidebar workspace groups. */
+export function workspaceGroupsSupported(): boolean {
+  return rpcMethods().has("workspace.group.create") && rpcMethods().has("workspace.group.add");
+}
+
+/** True iff `new-workspace` accepts `--layout <json>` (atomic grid spawn). */
+export function layoutSupported(): boolean {
+  return /^\s*new-workspace\b.*--layout/m.test(helpText());
+}
+
+/** True iff this cmux build lists the sidebar `log` verb. */
+export function logVerbSupported(): boolean {
+  return helpListsVerb(helpText(), "log");
+}
+
+/** Set a workspace's sidebar color (named color or #RRGGBB). */
+export function setWorkspaceColor(workspace: string, color: string): void {
+  cmux(["workspace-action", "--action", "set-color", "--workspace", workspace, "--color", color]);
+}
+
+/** Set a workspace's sidebar description line. */
+export function setWorkspaceDescription(workspace: string, description: string): void {
+  cmux(["workspace-action", "--action", "set-description", "--workspace", workspace, "--description", description]);
+}
+
+/** Append a line to a workspace's sidebar activity log. */
+export function workspaceLog(
+  message: string,
+  opts: { level?: "info" | "progress" | "success" | "warning" | "error"; source?: string; workspace?: string } = {},
+): void {
+  const args = ["log"];
+  if (opts.level) args.push("--level", opts.level);
+  if (opts.source) args.push("--source", opts.source);
+  if (opts.workspace) args.push("--workspace", opts.workspace);
+  args.push("--", message);
+  cmux(args);
+}
+
+export interface WorkspaceGroup {
+  ref: string;
+  name: string;
+  anchorRef: string;
+  memberRefs: string[];
+}
+
+interface WorkspaceGroupListResponse {
+  groups?: { ref?: string; name?: string; anchor_workspace_ref?: string; member_workspace_refs?: string[] }[];
+}
+
+/** List the sidebar workspace groups (refs, not UUIDs — cmux's list shape). */
+export function listWorkspaceGroups(): WorkspaceGroup[] {
+  const { groups } = cmuxJson<WorkspaceGroupListResponse>(["workspace-group", "list", "--json"]);
+  return (groups ?? []).flatMap((g) =>
+    g.ref && g.name !== undefined
+      ? [{ ref: g.ref, name: g.name ?? "", anchorRef: g.anchor_workspace_ref ?? "", memberRefs: g.member_workspace_refs ?? [] }]
+      : [],
+  );
+}
+
+/** Create a sidebar group seeded with `from` workspaces; returns the group ref.
+ *  cmux creates a fresh anchor workspace named after the group — fleet owns it. */
+export function createWorkspaceGroup(name: string, from: string[]): string {
+  const args = ["workspace-group", "create", "--name", name];
+  if (from.length) args.push("--from", from.join(","));
+  const out = cmux(args);
+  const m = out.match(/workspace_group:\d+/);
+  if (!m) throw new Error(`could not parse workspace_group ref from cmux output: ${JSON.stringify(out)}`);
+  return m[0];
+}
+
+/** Add a workspace to an existing group. */
+export function addWorkspaceToGroup(group: string, workspace: string): void {
+  cmux(["workspace-group", "add", "--group", group, "--workspace", workspace]);
+}
+
+/** Remove a workspace from whatever group holds it. */
+export function removeWorkspaceFromGroup(workspace: string): void {
+  cmux(["workspace-group", "remove", "--workspace", workspace]);
+}
+
+/** Delete a group AND close every workspace inside it (cmux semantics). Callers
+ *  must verify the group is empty-but-for-the-anchor first — destructive. */
+export function deleteWorkspaceGroup(group: string): void {
+  cmux(["workspace-group", "delete", group]);
+}
+
+// ── Atomic layout spawn ──────────────────────────────────────────────────────
+
+export interface LayoutPane {
+  pane: { surfaces: { type: "terminal"; command?: string }[] };
+}
+export interface LayoutSplit {
+  direction: "horizontal" | "vertical";
+  split: number;
+  children: [LayoutNode, LayoutNode];
+}
+export type LayoutNode = LayoutPane | LayoutSplit;
+
+/** Create a workspace with a full predefined split tree in ONE call; each
+ *  surface's `command` is launched by cmux. Returns the workspace ref. */
+export function newWorkspaceLayout(opts: { name: string; cwd: string; layout: LayoutNode; focus?: boolean }): string {
+  const out = cmux([
+    "new-workspace",
+    "--name",
+    opts.name,
+    "--cwd",
+    opts.cwd,
+    "--layout",
+    JSON.stringify(opts.layout),
+    "--focus",
+    opts.focus ? "true" : "false",
+  ]);
+  return parseRef(out, "workspace");
+}

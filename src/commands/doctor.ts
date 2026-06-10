@@ -3,7 +3,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, statSync } from "node:fs";
-import { cmux } from "../cmux.js";
+import {
+  cmux,
+  sidebarSnapshotSupported,
+  topSupported,
+  surfaceHealthSupported,
+  surfaceHealthEntries,
+  surfaceHealthFailure,
+} from "../cmux.js";
 import { loadOrchestrator } from "../orchestrator-record.js";
 import { readSharedState, pidAlive } from "../daemon/config.js";
 import { hookSessionsPath, readHookSessions, findSession } from "../cmux-sessions.js";
@@ -86,5 +93,27 @@ export function doctor(): void {
     info("daemon running", `pid ${st.pid}, ${st.ticks} beats, watching ${st.watching.length} Captain(s)`);
   } else {
     info("daemon not running", "started automatically by `fleet orchestrate`");
+  }
+
+  // optional cmux capabilities (each degrades gracefully when absent)
+  if (sidebarSnapshotSupported()) ok("sidebar snapshot", "one-RPC fleet status");
+  else info("sidebar snapshot unsupported", "status falls back to per-agent reads");
+  if (topSupported()) ok("resource telemetry (cmux top)", "daemon CPU/RSS guardrails active");
+  else info("resource telemetry unsupported", "no CPU/RSS guardrails on this cmux");
+  if (surfaceHealthSupported()) {
+    // Sweep this session's registered workers through the health probe.
+    const workers = listAgents().filter((a) => a.workspaceId && a.surfaceId && a.status !== "dead");
+    let failures = 0;
+    for (const a of workers) {
+      const reason = surfaceHealthFailure(surfaceHealthEntries(a.workspaceId!), a.surfaceId!);
+      if (reason) {
+        failures++;
+        bad(`surface health: ${a.label}`, reason);
+      }
+    }
+    if (workers.length === 0) info("surface health", "supported (no registered workers to probe)");
+    else if (failures === 0) ok("surface health", `${workers.length} worker surface(s) healthy`);
+  } else {
+    info("surface health unsupported", "zombie detection stays screen-based");
   }
 }
