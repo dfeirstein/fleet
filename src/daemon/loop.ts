@@ -5,10 +5,12 @@
 // Each beat per Captain: reconcile, classify, take bounded auto-actions,
 // escalate anything that needs the orchestrator, refresh the sidebar.
 import { createHash } from "node:crypto";
-import { readScreen, surfaceExists, closeWorkspace, streamEvents, eventsSupported, type Target, type EventStreamHandle } from "../cmux.js";
+import { readScreen, surfaceExists, closeWorkspace, streamEvents, eventsSupported, feedRepliesSupported, type Target, type EventStreamHandle } from "../cmux.js";
 import { FleetEventReactor, eventsCursorFile, type EventFrame, type AckFrame } from "../events.js";
 import { listAgents, target } from "../registry.js";
 import { snapshot } from "../commands/status.js";
+import { pendingPromptsFor, type AgentPrompt } from "../commands/prompts.js";
+import { windowRemainingMs, replyCommandHint } from "../feed-steering.js";
 import { resume } from "../commands/resume.js";
 import { acceptBypassDialog } from "../commands/spawn.js";
 import { updateSidebar, setHeartbeat } from "../dashboard.js";
@@ -80,6 +82,19 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const cooldownMs = cfg.alertCooldownSec * 1000;
   const agents = listAgents();
 
+  // RPC steering: pending Feed prompts (oldest first), so a blocked nudge can
+  // carry the prompt summary + the exact `fleet reply` command. SURFACING only
+  // — the daemon never auto-answers a prompt. Capability-gated + best-effort:
+  // without the feed RPCs (or with cmux unreachable) nudges render as before.
+  let prompts: AgentPrompt[] = [];
+  if (feedRepliesSupported()) {
+    try {
+      prompts = pendingPromptsFor(agents);
+    } catch {
+      /* cmux unreachable this tick — nudge without prompt detail */
+    }
+  }
+
   for (const a of agents) {
     if (a.status === "dead") continue;
     const t: Target = target(a);
@@ -111,8 +126,19 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     // done-without-proof candidate. Cheap (registry only) — the runnable gate
     // stays in `fleet done`/`digest`, never on the daemon's timer.
     const doneNoProof = a.status === "idle" && (a.proofs?.length ?? 0) === 0;
+    const myPrompts = prompts.filter((p) => p.agent.agentId === a.agentId);
+    const oldest = myPrompts[0]?.prompt;
+    const pendingPrompt = oldest
+      ? {
+          kind: oldest.kind,
+          hint: oldest.prompt.length > 120 ? oldest.prompt.slice(0, 117) + "..." : oldest.prompt,
+          secondsLeft: Math.max(0, Math.ceil(windowRemainingMs(oldest.createdAt, now) / 1000)),
+          replyCmd: replyCommandHint(oldest.kind, a.agentId),
+          morePending: myPrompts.length - 1,
+        }
+      : undefined;
     const msg = evaluate(
-      { agentId: a.agentId, label: a.label, status: a.status, stuckMs, doneNoProof },
+      { agentId: a.agentId, label: a.label, status: a.status, stuckMs, doneNoProof, pendingPrompt },
       mem,
       now,
       cooldownMs,

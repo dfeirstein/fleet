@@ -31,6 +31,8 @@ import { capture } from "./commands/capture.js";
 import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
 import { notifyOrchestrator } from "./commands/notify.js";
+import { prompts } from "./commands/prompts.js";
+import { reply } from "./commands/reply.js";
 import { clearDashboard } from "./dashboard.js";
 import { CmuxError } from "./cmux.js";
 
@@ -190,6 +192,15 @@ Commands:
                                              stuck/zombie detection, escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
                                              (bridge for /schedule routines)
+  prompts [agent]                            List pending Feed prompts (permission/
+                                             question/plan) with text, options, and
+                                             the 120s RPC reply window
+  reply <agent> <answer> [--prompt <id>]     Answer a worker's pending prompt via
+                                             the Feed RPC (no TUI keystrokes):
+                                             permission → allow|deny|always|all|bypass;
+                                             question → option # or text; plan →
+                                             approve|reject|auto|ultraplan. After the
+                                             120s window use \`fleet send\` instead
 
 Agents are matched by id, id-prefix, or label.`;
 
@@ -577,6 +588,18 @@ async function main(): Promise<void> {
       if (reviewBranches.length) {
         console.log(`branches left for review/merge: ${reviewBranches.join(", ")}`);
       }
+      break;
+    }
+    case "prompts": {
+      console.log(prompts(positionals[0]));
+      break;
+    }
+    case "reply": {
+      const agent = positionals[0];
+      if (!agent) return fail("reply requires an <agent> and <answer>");
+      const answer = positionals.slice(1).join(" ");
+      if (!answer) return fail("reply requires an <answer> (see `fleet prompts`)");
+      console.log(reply(agent, answer, str(flags.prompt)));
       break;
     }
     case "help":

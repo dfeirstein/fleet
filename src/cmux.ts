@@ -649,3 +649,90 @@ export function reloadConfig(): boolean {
     return false;
   }
 }
+
+// ── Feed steering (RPC replies to pending prompts) ───────────────────────────
+// Typed wrappers over `cmux rpc feed.list` / `feed.*.reply` — the same code
+// path as clicking Feed buttons, replacing keystrokes-into-the-TUI for
+// unblocking workers. Param shapes verified live (0.64.12 probes, 2026-06-09)
+// and against upstream Resources/feed-tui/index.ts (fetched 2026-06-09):
+//   - feed.permission.reply {request_id, mode: once|always|all|bypass|deny}
+//   - feed.question.reply   {request_id, selections: [option LABELS, not ids]}
+//   - feed.exit_plan.reply  {request_id, mode: ultraplan|bypassPermissions|
+//                            autoAccept|manual|deny [, feedback]}
+// Footguns: the hook semaphore waits 120s max — after that the item expires and
+// the worker falls back to its in-TUI prompt (keystrokes only). A reply to a
+// bogus/expired request_id STILL returns {delivered:true}, so delivery is not
+// proof the prompt was answered — callers re-check feed.list.
+
+let cachedFeedRepliesSupported: boolean | undefined;
+
+/** True iff this cmux advertises feed.list + all three reply RPCs (cached).
+ *  Fail-safe: any error resolving capabilities reads as "unsupported" so
+ *  consumers fail with a clear message / the daemon behaves as today. */
+export function feedRepliesSupported(): boolean {
+  if (cachedFeedRepliesSupported !== undefined) return cachedFeedRepliesSupported;
+  try {
+    const caps = cmuxJson<{ methods?: string[] }>(["capabilities"]);
+    const m = new Set(caps.methods ?? []);
+    cachedFeedRepliesSupported =
+      m.has("feed.list") &&
+      m.has("feed.permission.reply") &&
+      m.has("feed.question.reply") &&
+      m.has("feed.exit_plan.reply");
+  } catch {
+    cachedFeedRepliesSupported = false;
+  }
+  return cachedFeedRepliesSupported;
+}
+
+export interface FeedQuestionOption {
+  id?: string;
+  label?: string;
+  description?: string;
+}
+
+/** A `feed.list` item with the prompt-steering fields (superset of the narrow
+ *  shape the event reactor classifies on — see src/events.ts FeedItem). */
+export interface FeedPromptItem {
+  id?: string;
+  kind?: string; // permission | question | exitPlan | toolUse | stop | …
+  status?: string; // pending | telemetry | resolved | expired
+  cwd?: string;
+  workstream_id?: string;
+  request_id?: string; // the reply key (absent on telemetry items)
+  created_at?: string; // the 120s reply window starts here
+  title?: string;
+  text?: string;
+  tool_name?: string;
+  tool_input?: string;
+  question_prompt?: string;
+  question_multi_select?: boolean;
+  question_options?: FeedQuestionOption[];
+  questions?: unknown[]; // >1 ⇒ multi-question item (refused by fleet reply)
+}
+
+/** Full feed items via the `feed.list` RPC. Throws CmuxError when cmux is
+ *  unreachable — callers that must degrade (the daemon) catch it. */
+export function feedList(): FeedPromptItem[] {
+  return cmuxJson<{ items?: FeedPromptItem[] }>(["rpc", "feed.list"]).items ?? [];
+}
+
+export type PermissionReplyMode = "once" | "always" | "all" | "bypass" | "deny";
+export type ExitPlanReplyMode = "ultraplan" | "bypassPermissions" | "autoAccept" | "manual" | "deny";
+
+/** Answer a pending PermissionRequest feed item. */
+export function feedReplyPermission(requestId: string, mode: PermissionReplyMode): void {
+  cmux(["rpc", "feed.permission.reply", JSON.stringify({ request_id: requestId, mode })]);
+}
+
+/** Answer a pending AskUserQuestion feed item (selections = option labels). */
+export function feedReplyQuestion(requestId: string, selections: string[]): void {
+  cmux(["rpc", "feed.question.reply", JSON.stringify({ request_id: requestId, selections })]);
+}
+
+/** Answer a pending ExitPlanMode feed item (deny may carry feedback text). */
+export function feedReplyExitPlan(requestId: string, mode: ExitPlanReplyMode, feedback?: string): void {
+  const params: Record<string, string> = { request_id: requestId, mode };
+  if (feedback !== undefined) params.feedback = feedback;
+  cmux(["rpc", "feed.exit_plan.reply", JSON.stringify(params)]);
+}

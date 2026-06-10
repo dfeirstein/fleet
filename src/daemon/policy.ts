@@ -57,6 +57,18 @@ export interface AgentSignal {
   /** Feature 3: the worker is idle (done candidate) but attached no proof. A
    *  cheap registry check — the runnable gate lives in `fleet done`/`digest`. */
   doneNoProof?: boolean;
+  /** RPC steering: the worker's oldest pending Feed prompt, so the blocked
+   *  nudge can carry the summary + the exact `fleet reply` command. SURFACING
+   *  ONLY — the daemon must never auto-answer a prompt (a permission is a
+   *  policy decision; a human or Captain explicitly replies). */
+  pendingPrompt?: {
+    kind: string;
+    hint: string;
+    secondsLeft: number;
+    replyCmd: string;
+    /** Other prompts also pending for this worker (reply needs --prompt <id>). */
+    morePending: number;
+  };
 }
 
 export interface DaemonMsg {
@@ -79,6 +91,16 @@ export function evaluate(
     cond = "awaiting";
     urgent = true;
     text = `${sig.label} is blocked on you — needs a decision.`;
+    const p = sig.pendingPrompt;
+    if (p) {
+      // Surface the prompt + the ready-to-run reply; never answer it ourselves.
+      const how =
+        p.secondsLeft > 0
+          ? `answer with \`${p.replyCmd}\` (~${p.secondsLeft}s left in the RPC window)`
+          : `the 120s RPC window closed — answer via \`fleet send ${sig.agentId} ...\` or its pane`;
+      const more = p.morePending > 0 ? ` (+${p.morePending} more pending — see \`fleet prompts\`)` : "";
+      text += ` Pending ${p.kind}: "${p.hint}" — ${how}${more}.`;
+    }
   } else if (sig.status === "error") {
     cond = "error";
     urgent = true;

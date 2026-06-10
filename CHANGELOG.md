@@ -4,7 +4,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
-_(nothing pending)_
+- **RPC steering**: `fleet prompts` lists pending Feed prompts (kind, text/options, 120s reply window) and `fleet reply` answers them via the `feed.*.reply` RPCs (the Feed-button code path — no TUI keystrokes; refuses ambiguous/multi-pending without `--prompt`, fails clearly past the window → `fleet send`); daemon blocked-nudges carry the prompt summary + ready-to-run reply command (surfacing only, never auto-answers); `fleet status` blocked rows show the pending prompt kind.
 
 ## 2026-06-09
 
