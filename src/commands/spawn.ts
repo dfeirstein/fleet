@@ -15,6 +15,8 @@ import {
   submit,
   sendKey,
   submitToClaude,
+  browserOpen,
+  browserSupported,
   type Target,
 } from "../cmux.js";
 import { upsert, remove, patch, listAgents, sessionId, type Agent } from "../registry.js";
@@ -41,6 +43,9 @@ export interface SpawnOptions {
   worktree: boolean; // true = isolate the worker in a git worktree on its own branch
   branch?: string; // override the worktree branch name
   standalone: boolean; // true = force a fresh workspace, skip same-project grouping
+  /** Open a companion browser pane in the worker's workspace at spawn (url, or
+   *  true for about:blank) and record its surface id for Captain screenshots. */
+  withBrowser?: string | true;
 }
 
 export const SPAWN_DEFAULTS = {
@@ -232,7 +237,10 @@ export function spawn(opts: SpawnOptions): Agent {
     const wsId = rep.workspaceId ?? rep.workspace;
     const before = listGridCells(wsId);
     const beforeIds = new Set(before.map((c) => c.surfaceId));
-    const splitFrom = before[before.length - 1]?.surfaceId ?? rep.surfaceId ?? rep.surface;
+    // Split from a TERMINAL pane: once --with-browser panes coexist in the
+    // workspace, the last cell may be a browser surface — never split off that.
+    const terminals = before.filter((c) => c.type === "terminal");
+    const splitFrom = terminals[terminals.length - 1]?.surfaceId ?? rep.surfaceId ?? rep.surface;
     const dir = group.length % 2 === 1 ? "right" : "down";
     // Focus the new pane so its lazily-booted PTY comes up before we wait on it.
     newSplit(dir, { workspace: wsId, surface: splitFrom }, { focus: true });
@@ -323,6 +331,23 @@ export function spawn(opts: SpawnOptions): Agent {
       }
       remove(agentId);
       throw err;
+    }
+  }
+
+  // Companion browser pane (--with-browser). Opened AFTER the terminal surface
+  // is captured and registered, so `target()` keeps resolving the WORKER
+  // TERMINAL — the browser pane is recorded separately as browserSurfaceId and
+  // is never a read/send target (see registry.ts). Best-effort: a worker
+  // without its preview pane is still a working worker.
+  if (opts.withBrowser) {
+    const url = typeof opts.withBrowser === "string" ? opts.withBrowser : "about:blank";
+    try {
+      if (!browserSupported()) throw new Error("cmux build has no browser rail (capabilities: browser.*)");
+      const b = browserOpen(url, t.workspace);
+      agent.browserSurfaceId = b.surfaceId;
+      patch(agentId, { browserSurfaceId: b.surfaceId });
+    } catch (err) {
+      console.error(`warning: --with-browser pane not opened for ${label}: ${(err as Error).message}`);
     }
   }
 

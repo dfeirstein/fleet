@@ -49,6 +49,10 @@ export interface Agent {
   surface: string; // cmux surface ref, e.g. "surface:5"
   workspaceId?: string; // UUID, stable across ref renumbering
   surfaceId?: string;
+  /** UUID of the worker's companion browser pane (spawn --with-browser), so the
+   *  Captain can screenshot a worker's app by agent id. NEVER used for
+   *  read/send targeting — `target()` below stays pinned to the terminal. */
+  browserSurfaceId?: string;
   cwd: string;
   model: string;
   mode: "auto" | "gated" | "yolo";

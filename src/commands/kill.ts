@@ -53,6 +53,15 @@ function killOne(agent: Agent): void {
           // best-effort
         }
       } else {
+        // Close the companion browser pane first (it isn't a registry member,
+        // so the last-member workspace close below can't account for it).
+        if (agent.browserSurfaceId) {
+          try {
+            closeSurface({ workspace: h, surface: agent.browserSurfaceId });
+          } catch {
+            // already gone
+          }
+        }
         try {
           closeSurface(target(agent));
         } catch {

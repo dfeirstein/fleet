@@ -3,7 +3,7 @@
 // Phase 0–1 surface: spawn, read, send, status, kill.
 import { spawn, SPAWN_DEFAULTS, type SpawnOptions } from "./commands/spawn.js";
 import { grid, parseGrid, type GridOptions } from "./commands/grid.js";
-import { read } from "./commands/read.js";
+import { read, readBrowserScreenshot } from "./commands/read.js";
 import { send } from "./commands/send.js";
 import { snapshot, renderTable } from "./commands/status.js";
 import { kill, killAll, reviewBranches } from "./commands/kill.js";
@@ -13,6 +13,9 @@ import { orchestrate, captainSplit } from "./commands/orchestrate.js";
 import { setup } from "./commands/setup.js";
 import { doctor } from "./commands/doctor.js";
 import { verify } from "./commands/verify.js";
+import { verifyVisual } from "./commands/verify-visual.js";
+import { saveState, loadState } from "./commands/browser-state.js";
+import { review } from "./commands/review.js";
 import { done } from "./commands/done.js";
 import { bootstrap } from "./commands/bootstrap.js";
 import { currency } from "./commands/currency.js";
@@ -99,6 +102,9 @@ Commands:
     --command <cmd>        Override launched program (testing / non-claude)
     --no-launch            Open a bare shell; don't launch anything
     --no-autostart         Launch Claude but don't auto-send the task prompt
+    --with-browser [url]   Also open a companion browser pane in the worker's
+                           workspace (default about:blank); screenshot it with
+                           \`fleet read <agent> --browser-screenshot <out>\`
 
   Default permission mode is 'auto': autonomous, but a classifier blocks
   dangerous actions (deploys, curl|bash, force-push, mass deletes, etc.).
@@ -108,10 +114,25 @@ Commands:
                                              With a task, all panes run it; else
                                              they idle for per-pane 'fleet send'.
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
+       [--browser-screenshot <out.png>]     (or screenshot its --with-browser pane)
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
   status                                     Snapshot fleet table
   verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator;
                                              a PASSING check auto-attaches as proof)
+  verify <agent> --visual <url>              Browser-backed gate: load the page in a
+        [--expect-text <t>] [--exact-url]    dedicated surface; FAIL on timeout, page
+        [--state <project>]                  errors, off-origin final URL (--exact-url
+                                             = exact match), or missing text. Captures
+                                             screenshot+console to ~/.fleet/verify-
+                                             artifacts; PASS auto-attaches the proof
+  browser-state save|load <project>          Save/load the cmux browser session
+        [--import --from <browser>           (~/.fleet/browser-states/<project>.json,
+         [--domain <d>]] --url <page>        mode 600 — live cookies); --import seeds
+                                             from a desktop browser first; save REQUIRES
+                                             --url, a reachable http(s) page (the state
+                                             collector runs in-page — use your local app)
+  review <agent>                             Open review panels for a worker: visual
+                                             diff (branch vs base) + latest wave report
   done <agent> --proof <kind:ref> [--proof…] Attach proof-of-work + run the gate
         [--summary "<t>"]                    (test:<cmd>|file:<path>|note:<text>|…;
                                              fails closed — no/failed proof ≠ complete)
@@ -174,6 +195,13 @@ async function main(): Promise<void> {
   switch (cmd) {
     case "spawn": {
       const task = positionals.join(" ").trim();
+      // `--with-browser [url]`: the optional value means the parser will eat a
+      // following bare token — refuse anything that isn't URL-shaped so the
+      // task text can't be silently swallowed as a "url".
+      const wb = flags["with-browser"];
+      if (typeof wb === "string" && !/^(about:|[a-z][a-z0-9+.-]*:\/\/|localhost[:/]?|127\.)/i.test(wb)) {
+        return fail(`--with-browser got "${wb.slice(0, 40)}" which doesn't look like a URL — put the task text before the flag, or pass an explicit url`);
+      }
       const opts: SpawnOptions = {
         task,
         cwd: str(flags.cwd) ?? process.cwd(),
@@ -186,6 +214,7 @@ async function main(): Promise<void> {
         worktree: flags.worktree === true,
         branch: str(flags.branch),
         standalone: flags.standalone === true,
+        withBrowser: flags["with-browser"] === true ? true : str(flags["with-browser"]),
       };
       const agent = spawn(opts);
       console.log(`spawned ${agent.agentId} (${agent.label})`);
@@ -218,6 +247,11 @@ async function main(): Promise<void> {
     case "read": {
       const agent = positionals[0];
       if (!agent) return fail("read requires an <agent>");
+      const shot = str(flags["browser-screenshot"]);
+      if (shot) {
+        console.log(`screenshot → ${readBrowserScreenshot(agent, shot)}`);
+        break;
+      }
       const lines = str(flags.lines) ? Number(str(flags.lines)) : 50;
       console.log(read(agent, lines, flags.scrollback === true));
       break;
@@ -262,10 +296,51 @@ async function main(): Promise<void> {
     case "verify": {
       const agent = positionals[0];
       if (!agent) return fail("verify requires an <agent>");
+      if (flags.visual !== undefined) {
+        const url = str(flags.visual);
+        if (!url) return fail("verify --visual requires a <url>");
+        const { pass, output } = verifyVisual(agent, url, {
+          expectText: str(flags["expect-text"]),
+          exactUrl: flags["exact-url"] === true,
+          state: str(flags.state),
+        });
+        if (output) console.log(output);
+        console.log(pass ? "PASS" : "FAIL");
+        if (!pass) process.exitCode = 1;
+        break;
+      }
       const { pass, output } = verify(agent, str(flags.check));
       if (output) console.log(output);
       console.log(pass ? "PASS" : "FAIL");
       if (!pass) process.exitCode = 1;
+      break;
+    }
+    case "browser-state": {
+      const sub = positionals[0];
+      const project = positionals[1];
+      if (!sub || !project || (sub !== "save" && sub !== "load")) {
+        return fail("browser-state <save|load> <project> [--import --from <browser> [--domain <d>]]");
+      }
+      if (sub === "save") {
+        const importFrom = flags.import === true ? str(flags.from) : undefined;
+        if (flags.import === true && !importFrom) return fail("browser-state --import requires --from <browser> (e.g. chrome, safari)");
+        const url = str(flags.url);
+        if (!url) return fail("browser-state save requires --url <reachable http(s) page> (the state collector runs in-page; point it at your local app)");
+        const path = saveState(project, { importFrom, domain: str(flags.domain), url });
+        console.log(`saved browser state → ${path} (mode 600 — holds live session cookies, keep it out of repos)`);
+      } else {
+        const path = loadState(project);
+        console.log(`loaded browser state from ${path} into the shared cmux browser profile`);
+      }
+      break;
+    }
+    case "review": {
+      const agent = positionals[0];
+      if (!agent) return fail("review requires an <agent>");
+      const { opened, notes } = review(agent);
+      for (const o of opened) console.log(`opened ${o}`);
+      for (const n of notes) console.log(`· ${n}`);
+      if (opened.length === 0) process.exitCode = 1;
       break;
     }
     case "done": {
