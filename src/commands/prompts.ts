@@ -66,7 +66,7 @@ export function renderPrompts(rows: AgentPrompt[], nowMs: number): string {
     lines.push(`◍ ${agent.agentId}  ${agent.label}  ${prompt.kind}  (${window})`);
     lines.push(`   ${prompt.prompt.length > 200 ? prompt.prompt.slice(0, 197) + "..." : prompt.prompt}`);
     prompt.options.forEach((o, i) => lines.push(`     [${i}] ${o.label}`));
-    lines.push(`   answer: ${replyCommandHint(prompt.kind, agent.agentId)}   (prompt id ${prompt.requestId})`);
+    lines.push(`   answer: ${replyCommandHint(prompt.kind, agent.agentId, prompt.requestId)}`);
   }
   lines.push("", `${rows.length} pending prompt(s)`);
   return lines.join("\n");

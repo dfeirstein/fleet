@@ -40,7 +40,6 @@ function prompt(over: Partial<PendingPrompt> = {}): PendingPrompt {
     createdAt: "2026-06-09T12:00:00Z",
     prompt: "Bash: rm -rf node_modules",
     options: [],
-    multiSelect: false,
     multiQuestion: false,
     ...over,
   };
@@ -74,7 +73,7 @@ test("toPendingPrompt: exitPlan/exit_plan/plan all normalize to plan", () => {
   }
 });
 
-test("toPendingPrompt: question item carries prompt text, options, multi flags", () => {
+test("toPendingPrompt: question item carries prompt text and labeled options", () => {
   const p = toPendingPrompt(
     pendingItem({
       kind: "question",
@@ -202,6 +201,11 @@ test("parseAnswer question: multi-question items are refused", () => {
   assert.match(parseAnswer(p, "0").error ?? "", /multi-question/);
 });
 
+test("parseAnswer question: with zero options a bare number is a text answer, not an index", () => {
+  const p = prompt({ kind: "question", options: [] });
+  assert.deepEqual(parseAnswer(p, "2").action, { method: "feed.question.reply", selections: ["2"] });
+});
+
 test("parseAnswer plan: approve→manual (conservative), auto→autoAccept, reject→deny", () => {
   const p = prompt({ kind: "plan" });
   for (const [answer, mode] of [
@@ -217,8 +221,11 @@ test("parseAnswer plan: approve→manual (conservative), auto→autoAccept, reje
   assert.match(parseAnswer(p, "allow").error ?? "", /plan prompt takes/);
 });
 
-test("replyCommandHint: per-kind ready-to-run command", () => {
-  assert.equal(replyCommandHint("permission", "agent-1"), "fleet reply agent-1 allow|deny");
-  assert.match(replyCommandHint("question", "agent-1"), /option #/);
-  assert.match(replyCommandHint("plan", "agent-1"), /approve\|reject/);
+test("replyCommandHint: per-kind ready-to-run command, always pinned to the request id", () => {
+  assert.equal(
+    replyCommandHint("permission", "agent-1", "req-1"),
+    "fleet reply agent-1 allow|deny --prompt req-1",
+  );
+  assert.match(replyCommandHint("question", "agent-1", "req-1"), /option #.* --prompt req-1$/);
+  assert.match(replyCommandHint("plan", "agent-1", "req-1"), /approve\|reject --prompt req-1$/);
 });

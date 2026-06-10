@@ -58,10 +58,10 @@ export function reply(idOrLabel: string, answer: string, promptId?: string): str
 
   dispatch(prompt.requestId, parsed.action);
 
-  // Answering resumes the worker's turn — same dispatch stamp as `fleet send`.
-  patch(agent.agentId, { lastDispatchAt: new Date().toISOString(), status: "running" });
-
-  // Verify the reply landed: the item must no longer be pending.
+  // Verify the reply landed BEFORE stamping the registry: the item must no
+  // longer be pending. A still-pending item means the worker was NOT resumed
+  // (e.g. the window expired mid-flight) — stamping status:"running" then
+  // would be a lie the classifier has to claw back.
   const stillPending = feedList().some((i) => i.request_id === prompt.requestId && i.status === "pending");
   const detail =
     parsed.action.method === "feed.question.reply"
@@ -73,5 +73,8 @@ export function reply(idOrLabel: string, answer: string, promptId?: string): str
       `check the worker's pane (\`fleet read ${agent.agentId}\`); the window may have just expired`
     );
   }
+
+  // Answering resumed the worker's turn — same dispatch stamp as `fleet send`.
+  patch(agent.agentId, { lastDispatchAt: new Date().toISOString(), status: "running" });
   return `answered ${agent.label}'s ${prompt.kind} prompt: ${detail}`;
 }

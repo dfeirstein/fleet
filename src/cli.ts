@@ -198,9 +198,10 @@ Commands:
   reply <agent> <answer> [--prompt <id>]     Answer a worker's pending prompt via
                                              the Feed RPC (no TUI keystrokes):
                                              permission → allow|deny|always|all|bypass;
-                                             question → option # or text; plan →
-                                             approve|reject|auto|ultraplan. After the
-                                             120s window use \`fleet send\` instead
+                                             question → option # or label (other text
+                                             is sent verbatim as the one selection);
+                                             plan → approve|reject|auto|ultraplan.
+                                             After the 120s window use \`fleet send\`
 
 Agents are matched by id, id-prefix, or label.`;
 

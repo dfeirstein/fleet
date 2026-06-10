@@ -72,8 +72,9 @@ fleet prompts [agent]                           List pending Feed prompts (permi
                                                 question/plan) + the 120s reply window
 fleet reply <agent> <answer> [--prompt <id>]    Answer a pending prompt via RPC, no TUI
                                                 keystrokes (permission: allow|deny|…;
-                                                question: option # or text; plan:
-                                                approve|reject); past 120s → fleet send
+                                                question: option # / label, other text
+                                                sent verbatim as the one selection;
+                                                plan: approve|reject); past 120s → fleet send
 ```
 
 Agents are matched by id, id-prefix, or label.

@@ -33,7 +33,6 @@ export interface PendingPrompt {
   /** The human-readable ask (question text / tool + input / plan title). */
   prompt: string;
   options: PromptOption[];
-  multiSelect: boolean;
   /** >1 questions in one item — fleet reply refuses these (answer in the pane). */
   multiQuestion: boolean;
 }
@@ -59,7 +58,6 @@ export function toPendingPrompt(item: FeedPromptItem): PendingPrompt | undefined
     options: (item.question_options ?? []).flatMap((o) =>
       o.label ? [{ label: o.label, description: o.description }] : [],
     ),
-    multiSelect: item.question_multi_select === true,
     multiQuestion: (item.questions?.length ?? 0) > 1,
   };
 }
@@ -135,8 +133,11 @@ const PLAN_ANSWERS: Record<string, ExitPlanReplyMode> = {
 /**
  * Validate an answer against the prompt's kind:
  *   permission → allow|deny|always|all|bypass (allow = Once);
- *   question   → an option index ("0", "1", …) or option text (label match
- *                preferred; otherwise the text passes through as-is);
+ *   question   → an option index ("0", "1", …) or an option label; anything
+ *                else is sent verbatim as the single selection string (how the
+ *                agent treats a non-label selection is up to the agent).
+ *                Exactly ONE selection is sent — a multi-select prompt gets a
+ *                single choice via fleet reply.
  *   plan       → approve|reject|auto|manual|ultraplan.
  */
 export function parseAnswer(prompt: PendingPrompt, answer: string): { action?: ReplyAction; error?: string } {
@@ -152,7 +153,9 @@ export function parseAnswer(prompt: PendingPrompt, answer: string): { action?: R
       if (prompt.multiQuestion) {
         return { error: "multi-question prompt — answer it in the worker's pane (or `fleet send`)" };
       }
-      if (/^\d+$/.test(a)) {
+      // An index only means "pick that option" when the prompt HAS options; a
+      // bare number against an option-less prompt is just a text answer.
+      if (prompt.options.length > 0 && /^\d+$/.test(a)) {
         const idx = Number(a);
         const opt = prompt.options[idx];
         if (!opt) {
@@ -161,7 +164,7 @@ export function parseAnswer(prompt: PendingPrompt, answer: string): { action?: R
         return { action: { method: "feed.question.reply", selections: [opt.label] } };
       }
       // Text answer: snap to a label when one matches (the RPC keys on labels);
-      // otherwise pass the text through (free-form answer).
+      // otherwise the text is sent verbatim as the selection.
       const byLabel = prompt.options.find((o) => o.label.toLowerCase() === a.toLowerCase());
       return { action: { method: "feed.question.reply", selections: [byLabel?.label ?? a] } };
     }
@@ -173,14 +176,18 @@ export function parseAnswer(prompt: PendingPrompt, answer: string): { action?: R
   }
 }
 
-/** The ready-to-run reply command a Captain can paste (daemon nudges, status). */
-export function replyCommandHint(kind: PromptKind, agentRef: string): string {
+/** The ready-to-run reply command a Captain can paste (daemon nudges, fleet
+ *  prompts). Always pinned to the prompt's request_id: a bare `fleet reply`
+ *  answers whichever single prompt is pending AT REPLY TIME, so a copy-pasted
+ *  hint could race a newly-landed prompt and answer the wrong one. */
+export function replyCommandHint(kind: PromptKind, agentRef: string, requestId: string): string {
+  const pin = ` --prompt ${requestId}`;
   switch (kind) {
     case "permission":
-      return `fleet reply ${agentRef} allow|deny`;
+      return `fleet reply ${agentRef} allow|deny${pin}`;
     case "question":
-      return `fleet reply ${agentRef} <option #>`;
+      return `fleet reply ${agentRef} <option #>${pin}`;
     case "plan":
-      return `fleet reply ${agentRef} approve|reject`;
+      return `fleet reply ${agentRef} approve|reject${pin}`;
   }
 }

@@ -22,7 +22,7 @@ test("evaluate: blocked nudge carries the prompt summary + exact fleet reply com
         kind: "permission",
         hint: "Bash: npm run db:push",
         secondsLeft: 90,
-        replyCmd: "fleet reply agent-1 allow|deny",
+        replyCmd: "fleet reply agent-1 allow|deny --prompt req-1",
         morePending: 0,
       },
     }),
@@ -34,7 +34,7 @@ test("evaluate: blocked nudge carries the prompt summary + exact fleet reply com
   assert.ok(msg);
   assert.equal(msg.urgent, true);
   assert.match(msg.text, /Pending permission: "Bash: npm run db:push"/);
-  assert.match(msg.text, /`fleet reply agent-1 allow\|deny`/);
+  assert.match(msg.text, /`fleet reply agent-1 allow\|deny --prompt req-1`/);
   assert.match(msg.text, /~90s left/);
 });
 

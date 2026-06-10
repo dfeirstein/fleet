@@ -133,7 +133,7 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
           kind: oldest.kind,
           hint: oldest.prompt.length > 120 ? oldest.prompt.slice(0, 117) + "..." : oldest.prompt,
           secondsLeft: Math.max(0, Math.ceil(windowRemainingMs(oldest.createdAt, now) / 1000)),
-          replyCmd: replyCommandHint(oldest.kind, a.agentId),
+          replyCmd: replyCommandHint(oldest.kind, a.agentId, oldest.requestId),
           morePending: myPrompts.length - 1,
         }
       : undefined;
