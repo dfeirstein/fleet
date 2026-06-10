@@ -125,9 +125,11 @@ export function workstreamKeys(sessionId: string): string[] {
 
 /**
  * Find the durable session for a registered worker. Match strength order:
- * surfaceId (unique per pane) → workspaceId (the active-session index first,
- * then any session in that workspace) → cwd, only when exactly ONE session ran
- * there (same-project siblings share a cwd — an ambiguous match is no match).
+ * surfaceId (unique per pane) → workspaceId → cwd. The workspace and cwd lanes
+ * both require exactly ONE matching session: grid/quadrant siblings share a
+ * workspaceId (and same-project siblings a cwd), so an ambiguous match could
+ * be a SIBLING's session — wrong status hint, wrong `claude --resume` offer.
+ * Ambiguous is no match; each lane falls through to the next.
  */
 export function findSession(
   map: DurableSessionMap,
@@ -138,11 +140,14 @@ export function findSession(
     if (hit) return hit;
   }
   if (probe.workspaceId) {
+    const hits = map.sessions.filter((s) => s.workspaceId === probe.workspaceId);
+    // The active-session index can know a session whose own record lacks a
+    // workspaceId; with siblings present it just points at whichever pane was
+    // last active — a candidate, never a tiebreaker.
     const activeSid = map.activeSessionByWorkspace.get(probe.workspaceId);
-    const hit =
-      (activeSid && map.sessions.find((s) => s.sessionId === activeSid)) ||
-      map.sessions.find((s) => s.workspaceId === probe.workspaceId);
-    if (hit) return hit;
+    const active = activeSid ? map.sessions.find((s) => s.sessionId === activeSid) : undefined;
+    if (active && !hits.includes(active)) hits.push(active);
+    if (hits.length === 1) return hits[0];
   }
   for (const cwd of probe.cwds ?? []) {
     if (!cwd) continue;

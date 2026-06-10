@@ -197,5 +197,16 @@ export function resume(opts: { apply?: boolean } = {}): ResumeResult {
     }
     offers.push(offer);
   }
-  return { rows: rows.filter((r) => r.status !== "dead"), pruned, offers };
+  // Keep the table and the offer lines in agreement: an offered worker shows in
+  // the table as "resumable" (or "respawned" after --apply) instead of being
+  // filtered out as dead. Display-only — the REGISTRY keeps the truth: still
+  // `dead` until --apply respawns it (applyResume patches the live record).
+  const offered = new Map(offers.map((o) => [o.agentId, o.respawned ? "respawned" : "resumable"]));
+  const shown = rows
+    .map((r) => {
+      const display = offered.get(r.agentId);
+      return display ? { ...r, status: display } : r;
+    })
+    .filter((r) => r.status !== "dead");
+  return { rows: shown, pruned, offers };
 }

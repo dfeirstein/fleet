@@ -45,6 +45,9 @@ const REAL_SHAPE = JSON.stringify({
       cwd: "/repo/shared", // same cwd as bbb → ambiguous for cwd matching
       sessionId: "sess-ccc",
     },
+    // grid siblings: two sessions in ONE workspace, distinct surfaces/cwds
+    "sess-g1": { sessionId: "sess-g1", workspaceId: "WS-GRID", surfaceId: "SURF-G1", cwd: "/repo/wt-g1" },
+    "sess-g2": { sessionId: "sess-g2", workspaceId: "WS-GRID", surfaceId: "SURF-G2", cwd: "/repo/wt-g2" },
     "sess-bad": 42, // not an object → skipped entirely
   },
 });
@@ -52,7 +55,7 @@ const REAL_SHAPE = JSON.stringify({
 test("parseHookSessions: real-shaped document parses with per-entry validation", () => {
   const map = parseHookSessions(REAL_SHAPE);
   assert.ok(map);
-  assert.equal(map.sessions.length, 3); // sess-bad skipped
+  assert.equal(map.sessions.length, 5); // sess-bad skipped
   const a = map.sessions.find((s) => s.sessionId === "sess-aaa");
   assert.equal(a?.workspaceId, "WS-1");
   assert.equal(a?.surfaceId, "SURF-A");
@@ -92,6 +95,19 @@ test("findSession: surfaceId beats workspaceId beats cwd; ambiguous cwd is no ma
   // two sessions share /repo/shared → ambiguous → undefined
   assert.equal(findSession(map, { cwds: ["/repo/shared"] }), undefined);
   assert.equal(findSession(map, { surfaceId: "nope", workspaceId: "nope", cwds: ["/nope"] }), undefined);
+});
+
+test("findSession: a shared workspaceId (grid/quadrant siblings) is ambiguous — no workspace-lane match", () => {
+  const map = parseHookSessions(REAL_SHAPE)!;
+  // two sessions in WS-GRID → the workspace lane must refuse, not pick a sibling
+  assert.equal(findSession(map, { workspaceId: "WS-GRID" }), undefined);
+  // ...and must not shadow a would-be-correct unique-cwd match
+  assert.equal(findSession(map, { workspaceId: "WS-GRID", cwds: ["/repo/wt-g1"] })?.sessionId, "sess-g1");
+  // surfaceId stays exact for siblings
+  assert.equal(findSession(map, { surfaceId: "SURF-G2" })?.sessionId, "sess-g2");
+  // an active-index pick is a candidate, never a sibling tiebreaker
+  map.activeSessionByWorkspace.set("WS-GRID", "sess-g2");
+  assert.equal(findSession(map, { workspaceId: "WS-GRID" }), undefined);
 });
 
 test("resumeCommand: captured argv + --resume, stale --resume stripped, args quoted", () => {

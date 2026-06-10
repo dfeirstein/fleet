@@ -18,6 +18,9 @@ const ICON: Record<string, string> = {
   error: "✗",
   dead: "☠",
   unknown: "◌",
+  // display-only statuses from `fleet resume` (registry never stores them)
+  resumable: "↻",
+  respawned: "↻",
 };
 
 export interface FleetRow {
