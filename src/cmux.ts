@@ -39,13 +39,25 @@ export function cmuxBin(): string {
   return CMUX_BIN;
 }
 
+/** Options for a single cmux invocation. */
+export interface CmuxOpts {
+  /** Capture the child's stderr into the thrown CmuxError instead of letting it
+   *  inherit the parent terminal. Use ONLY for probes where a failure (e.g.
+   *  not_found) is an EXPECTED answer the caller swallows — otherwise real
+   *  cmux errors must stay visible (execFileSync inherits stderr by default). */
+  quietStderr?: boolean;
+}
+
 /** Run a cmux subcommand, returning trimmed stdout. Throws CmuxError on failure. */
-export function cmux(args: string[]): string {
+export function cmux(args: string[], opts?: CmuxOpts): string {
   try {
     const out = execFileSync(CMUX_BIN, args, {
       encoding: "utf8",
       env: { ...process.env, CMUX_QUIET: "1" },
       maxBuffer: 16 * 1024 * 1024,
+      // Default leaves stderr inherited (real errors stay visible); a probe opts
+      // into piping it so an expected not_found is captured, not printed.
+      ...(opts?.quietStderr ? { stdio: ["ignore", "pipe", "pipe"] as const } : {}),
     });
     return out.trim();
   } catch (err) {
@@ -60,8 +72,8 @@ export function cmux(args: string[]): string {
 }
 
 /** Run a cmux subcommand that emits JSON (pass the `--json` flag yourself). */
-export function cmuxJson<T = unknown>(args: string[]): T {
-  const raw = cmux(args);
+export function cmuxJson<T = unknown>(args: string[], opts?: CmuxOpts): T {
+  const raw = cmux(args, opts);
   return JSON.parse(raw) as T;
 }
 
@@ -229,7 +241,7 @@ interface PaneSurfacesResponse {
 }
 
 /** List the surfaces in a workspace's focused pane (with both refs and UUIDs). */
-export function listSurfaces(workspaceRef: string): PaneSurfacesResponse {
+export function listSurfaces(workspaceRef: string, opts?: CmuxOpts): PaneSurfacesResponse {
   return cmuxJson<PaneSurfacesResponse>([
     "list-pane-surfaces",
     "--workspace",
@@ -237,7 +249,7 @@ export function listSurfaces(workspaceRef: string): PaneSurfacesResponse {
     "--id-format",
     "both",
     "--json",
-  ]);
+  ], opts);
 }
 
 interface PanesResponse {
@@ -264,8 +276,8 @@ export function newSplit(
 }
 
 /** Enumerate every pane's terminal surface in a workspace, with stable UUIDs. */
-export function listGridCells(workspaceRef: string): GridCell[] {
-  const { panes } = cmuxJson<PanesResponse>(["list-panes", "--workspace", workspaceRef, "--json"]);
+export function listGridCells(workspaceRef: string, opts?: CmuxOpts): GridCell[] {
+  const { panes } = cmuxJson<PanesResponse>(["list-panes", "--workspace", workspaceRef, "--json"], opts);
   const cells: GridCell[] = [];
   for (const p of panes) {
     const info = cmuxJson<PaneSurfacesResponse>([
@@ -277,7 +289,7 @@ export function listGridCells(workspaceRef: string): GridCell[] {
       "--id-format",
       "both",
       "--json",
-    ]);
+    ], opts);
     const s = info.surfaces.find((x) => x.selected) ?? info.surfaces[0];
     if (s) cells.push({ paneRef: p.ref, surfaceRef: s.ref, surfaceId: s.id, workspaceId: info.workspace_id, type: s.type });
   }
@@ -311,20 +323,24 @@ export function focusedWorkspace(): { id: string; ref: string } | undefined {
   return undefined;
 }
 
-/** True if a workspace still exists (used to reconcile a stale registry). */
+/** True if a workspace still exists (used to reconcile a stale registry). A
+ *  not_found here is the expected "gone" answer, so the probe runs quiet — the
+ *  cmux child's error text is captured, not leaked to the terminal. */
 export function workspaceExists(workspace: string): boolean {
   try {
-    listSurfaces(workspace);
+    listSurfaces(workspace, { quietStderr: true });
     return true;
   } catch {
     return false;
   }
 }
 
-/** True if a specific surface (pane) still exists within its workspace. */
+/** True if a specific surface (pane) still exists within its workspace. Quiet
+ *  for the same reason as workspaceExists — an absent workspace/surface is an
+ *  expected answer, not an error worth printing. */
 export function surfaceExists(target: { workspace: string; surface: string }): boolean {
   try {
-    return listGridCells(target.workspace).some((c) => c.surfaceId === target.surface);
+    return listGridCells(target.workspace, { quietStderr: true }).some((c) => c.surfaceId === target.surface);
   } catch {
     return false;
   }

@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Fixed
+- **Silent existence probes** (no more leaked `not_found` from `fleet daemon status`/`stop`): `cmux()`/`cmuxJson()` take an opt-in `quietStderr` that pipes the child's stderr (capturing it into the thrown `CmuxError`) instead of inheriting the terminal; `workspaceExists`/`surfaceExists` (via `listSurfaces`/`listGridCells`) set it, since a gone workspace/surface is an expected answer they swallow. Real cmux errors everywhere else keep stderr inherited and visible. (#PR)
+
 ### Added
 - **Outcomes gain view + per-failure investigate nudge** (CL-Bench rec #5 + the "investigate is not per-failure" gap): new pure module `src/outcomes-gain.ts` (`node:test` coverage) aggregates the cross-session outcome log per project into time-bucketed (UTC-day) failure rates, a repeat-failure signal (exact normalized-text match on `label │ check`, stated as non-semantic), and a fail-closed trend verdict (`<2` graded buckets → `insufficient-data`); corrupt log lines are counted (`malformed`), never silently dropped. Wired as `fleet outcomes --gain [--cwd P] [--json]` (default `fleet outcomes` unchanged). The daemon's failure (error) escalation now tells the Captain to investigate and log the root cause before re-dispatching, not just retry. (#27)
 
