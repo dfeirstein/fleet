@@ -85,6 +85,12 @@ E2E. See `.claude-docs/verification.md`.
   `.claude-docs/event-stream.md`.
 - **Proof gate `note:` is metadata-only** — never satisfies "done" alone; `complete`
   needs a checkable `test:`/`file:` proof (judge ≠ generator, fail closed).
+- **Parallel branches off one base merge sequentially.** Each later PR re-merges
+  updated main in its own worktree: at append seams keep BOTH sides (main's first);
+  tests are the UNION of all suites — post-merge count must equal the sum, and a
+  failing test means fix the integration, never delete the test; in CHANGELOG keep
+  your own bullet under Unreleased and move merged siblings' bullets under their date
+  heading with `(#PR)`.
 
 ## Behavioral Rules
 Bias toward caution over speed. Use judgment on trivial tasks.
