@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **Memory verification coverage** (audit-docs + distill prompts): new pure classifier `src/verification-coverage.ts` (tunable `UNVERIFIED_MARKERS`, `node:test` coverage) scores what fraction of CLAUDE.md gotchas + `.claude-docs` body claims are checked facts vs. uncertainty-flagged guesses; `fleet audit-docs` reports `verification coverage: N/M (P%)` and lists unverified `file:line` refs as warnings that lower memory quality but never hard-fail by themselves (an unreadable memory file still fails closed). Scribe brief + daemon distill nudge now require each gotcha to state how it was verified (or be marked `unverified:` and queued) and reference the fail → investigate → verify → distill → consult progression. Bootstrap-spawned scribes now default to Fable 5 (the verify/distill stages where CL-Bench shows Opus-tier underperforms; rec #3) — ordinary-worker default and `--model` override unchanged. (#26)
+
 ### Docs
 - **README refresh + real screenshots**: Commands table and `src/` map brought current with the actual surface (adds `done`/`review`/`prompts`/`reply`/`digest` rows, `events.ts`/`proof.ts`/`project-memory.ts`, and the proof-of-work gate + project-memory subsystem notes); embeds live hero/`fleet status`/`fleet doctor` screenshots in `docs/screenshots/`. (#25)
 

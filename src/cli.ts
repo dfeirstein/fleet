@@ -445,9 +445,16 @@ async function main(): Promise<void> {
             : `\ncurrency: all facts fresh`,
         );
       }
+      if (res.coverage) {
+        const c = res.coverage;
+        console.log(`\nverification coverage: ${c.verified}/${c.total} claims checked (${c.percent}%)`);
+        for (const u of c.unverified) console.log(`  ⚠ ${u.file}:${u.line} (${u.marker}) — ${u.text}`);
+      }
       // The gate contract stays visible: soft-pass cases are stated, and a FAIL
-      // always says why (inconclusive = FAIL — the gate fails closed).
+      // always says why (inconclusive = FAIL — the gate fails closed). Warnings
+      // (unverified memory) lower quality but never hard-fail by themselves.
       for (const note of res.gateNotes) console.log(`\n${note}`);
+      for (const warning of res.warnings) console.log(`\n⚠ ${warning}`);
       console.log(`\naudit-docs: ${res.pass ? "PASS" : "FAIL"}`);
       for (const reason of res.failReasons) console.log(`  ✗ ${reason}`);
       if (!res.pass) process.exitCode = 1;

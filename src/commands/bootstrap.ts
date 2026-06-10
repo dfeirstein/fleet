@@ -18,6 +18,16 @@ export interface BootstrapOptions {
 /** A CLAUDE.md under this many bytes is treated as "thin" and worth (re)bootstrapping. */
 const THIN_CLAUDE_MD_BYTES = 400;
 
+/**
+ * Default model for the scribe (the claude CLI `--model` alias, verified from
+ * `claude --help`). Scribes do the verify/distill memory stages where CL-Bench
+ * shows Opus-tier underperforms and Fable 5 completes the loop (research/
+ * continual-learning-bench-parth-asawa-2026-06-10.md, rec #3) — so the scribe
+ * defaults to Fable 5 rather than the fleet-wide worker default (Opus). An
+ * explicit `--model` still overrides.
+ */
+const SCRIBE_MODEL = "fable";
+
 export function claudeMdState(cwd: string): "missing" | "thin" | "present" {
   const p = claudeMdPath(cwd);
   if (!existsSync(p)) return "missing";
@@ -42,7 +52,8 @@ export function scribeBrief(cwd: string): string {
     `1. A lean CLAUDE.md (<120 lines, mistake-driven, verification-first) with the Karpathy Behavioral Rules block and a Reference Docs index.`,
     `2. A ${CLAUDE_DOCS_DIR}/ folder with 3–6 reference docs (framework gotchas, testing, deploy, stack-specific) and the generated index.`,
     `3. Use the skill's Research Phase to put the CURRENT stable version of each major dependency, the current LLM model IDs, and the current API versions into the docs — do NOT rely on your training cutoff; resolve them from npm/PyPI/official docs and cite the source URL + today's date.`,
-    `4. Append this exact block to CLAUDE.md verbatim so every future worker inherits the discipline:`,
+    `4. Every gotcha/claim states HOW it was verified — a command you ran, a doc you consulted + date, or an observed behavior — or is prefixed \`unverified:\` and queued for verification. Drop failure notes you can't generalize into a rule: distill is "a general rule backed by a checked fact", not a diary of guesses (the progression: fail → investigate → verify → distill → consult). \`fleet audit-docs\` scores this as verification coverage.`,
+    `5. Append this exact block to CLAUDE.md verbatim so every future worker inherits the discipline:`,
     ``,
     CURRENCY_CLAUSE,
     ``,
@@ -75,7 +86,7 @@ export function bootstrap(opts: BootstrapOptions): { agent?: Agent; skipped?: st
     task: `Read ${briefPath} and execute it exactly. It instructs you to give this project (${opts.cwd}) strong, current durable memory — a lean CLAUDE.md and a ${CLAUDE_DOCS_DIR}/ reference folder — then report back. Do not build product features.`,
     cwd: opts.cwd,
     label: "scribe",
-    model: opts.model ?? SPAWN_DEFAULTS.model,
+    model: opts.model ?? SCRIBE_MODEL,
     mode: SPAWN_DEFAULTS.mode,
     launch: true,
     autostart: true,
