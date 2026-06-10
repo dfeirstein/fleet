@@ -537,11 +537,12 @@ async function main(): Promise<void> {
       break;
     }
     case "resume": {
-      const { rows, pruned, offers } = resume({ apply: flags.apply === true });
+      const { rows, pruned, offers, skipped } = resume({ apply: flags.apply === true });
       if (pruned.length) {
         console.log(`pruned ${pruned.length} dead:`);
         for (const p of pruned) console.log(`  ☠ ${p}`);
       }
+      for (const s of skipped) console.log(`⚠ skipped ${s.label} (${s.agentId}): ${s.note}`);
       for (const o of offers) {
         const caveat = o.restorable ? "" : "  [cmux marks this session not-restorable — claude --resume usually still works]";
         if (o.respawned) {

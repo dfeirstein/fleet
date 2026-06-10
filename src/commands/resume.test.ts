@@ -62,10 +62,34 @@ test("matrix: a trace cmux marks not-restorable still resumes (flag is a display
   }
 });
 
-test("matrix: registered + gone + untraceable → prune with a clear note", () => {
+test("matrix: registered + gone + untraceable → prune with an honest note", () => {
   const [d] = planReconcile([cand({ workspaceId: "WS-NEVER", cwds: ["/elsewhere"] })], DURABLE);
   assert.equal(d?.action, "prune");
-  if (d?.action === "prune") assert.match(d.note, /no trace/);
+  // "unambiguous": absent and ambiguous traces both land here — the note must
+  // not claim "no trace" when the real reason may be multiple traces.
+  if (d?.action === "prune") assert.match(d.note, /no unambiguous trace/);
+});
+
+test("matrix: two agents resolving to ONE durable session are BOTH demoted to skip (fail closed)", () => {
+  // Repro: grid siblings A and B share workspace WS-GONE; A's session never
+  // reached the durable map, so the workspace lane hands B's session (the only
+  // hit) to BOTH agents. Nobody wins — a duplicate claim means at least one
+  // match is wrong, and respawning the same session twice would repoint A's
+  // registry at B's conversation.
+  const decisions = planReconcile(
+    [
+      cand({ agentId: "sib-a", label: "sib-a", workspaceId: "WS-GONE" }),
+      cand({ agentId: "sib-b", label: "sib-b", workspaceId: "WS-GONE" }),
+      cand({ agentId: "solo", label: "solo", workspaceId: "WS-NR" }), // unique claim — untouched
+    ],
+    DURABLE,
+  );
+  assert.equal(decisions.length, 3);
+  for (const d of decisions.slice(0, 2)) {
+    assert.equal(d.action, "skip");
+    if (d.action === "skip") assert.match(d.note, /sess-r matched 2 registered agents.*fail closed/);
+  }
+  assert.equal(decisions[2]?.action, "resume"); // non-colliding resume survives the post-pass
 });
 
 test("matrix: no durable file at all → gone workers prune exactly as before", () => {

@@ -70,20 +70,22 @@ export type ReconcileDecision =
        *  resuming — the ones mid-run at crash time). */
       restorable: boolean;
     }
-  | { agentId: string; label: string; action: "prune"; note: string };
+  | { agentId: string; label: string; action: "prune"; note: string }
+  | { agentId: string; label: string; action: "skip"; note: string };
 
 /**
  * Decide each registered agent's fate against the durable session map:
  *   registered + alive               → keep (today's behavior)
  *   registered + gone + traced       → resume (exact `claude --resume` argv)
- *   registered + gone + untraceable  → prune (no trace in either place)
+ *   registered + gone + untraceable  → prune (no unambiguous trace anywhere)
+ *   gone + trace COLLISION           → skip (see the post-pass below)
  * Unregistered durable sessions are not fleet's — ignored entirely.
  */
 export function planReconcile(
   candidates: ReconcileCandidate[],
   durable: DurableSessionMap | undefined,
 ): ReconcileDecision[] {
-  return candidates.map((c) => {
+  const decisions: ReconcileDecision[] = candidates.map((c) => {
     if (c.alive) return { agentId: c.agentId, label: c.label, action: "keep" };
     const sess = durable
       ? findSession(durable, { surfaceId: c.surfaceId, workspaceId: c.workspaceId, cwds: c.cwds })
@@ -93,7 +95,10 @@ export function planReconcile(
         agentId: c.agentId,
         label: c.label,
         action: "prune",
-        note: "no live workspace and no trace in cmux's durable session map",
+        // "unambiguous": findSession also returns nothing when MULTIPLE
+        // sessions match a workspace/cwd lane — absent and ambiguous both
+        // land here, so don't claim "no trace".
+        note: "no live workspace and no unambiguous trace in cmux's durable session map",
       };
     }
     return {
@@ -104,6 +109,29 @@ export function planReconcile(
       command: resumeCommand(sess),
       cwd: sess.cwd,
       restorable: sess.isRestorable !== false,
+    };
+  });
+
+  // Fail-closed post-pass: per-candidate matching can still collide ACROSS
+  // agents — grid siblings share one workspaceId, and if a sibling's own
+  // session never reached the durable map (undispatched, or its entry was
+  // skipped as corrupt), the workspace lane sees exactly ONE session and hands
+  // it to BOTH agents. A durable session belongs to exactly one pane, so a
+  // duplicate assignment means at least one match is wrong; don't pick a
+  // winner — demote every collider to skip.
+  const claims = new Map<string, number>();
+  for (const d of decisions) {
+    if (d.action === "resume") claims.set(d.sessionId, (claims.get(d.sessionId) ?? 0) + 1);
+  }
+  return decisions.map((d) => {
+    if (d.action !== "resume") return d;
+    const n = claims.get(d.sessionId) ?? 0;
+    if (n <= 1) return d;
+    return {
+      agentId: d.agentId,
+      label: d.label,
+      action: "skip",
+      note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
     };
   });
 }
@@ -136,6 +164,9 @@ export interface ResumeResult {
   rows: FleetRow[];
   pruned: string[];
   offers: ResumeOffer[];
+  /** Demoted resume collisions (fail closed): kept in the registry as dead,
+   *  never offered/respawned — each with the warning to show the user. */
+  skipped: { agentId: string; label: string; note: string }[];
 }
 
 /** Respawn a resumable worker: fresh workspace running its `claude --resume`,
@@ -169,11 +200,18 @@ export function resume(opts: { apply?: boolean } = {}): ResumeResult {
 
   const pruned: string[] = [];
   const offers: ResumeOffer[] = [];
+  const skipped: ResumeResult["skipped"] = [];
   for (const d of decisions) {
     if (d.action === "keep") continue;
     if (d.action === "prune") {
       remove(d.agentId);
       pruned.push(`${d.label} (${d.note})`);
+      continue;
+    }
+    if (d.action === "skip") {
+      // Stays registered (dead) so a later resume can retry once the durable
+      // map disambiguates (e.g. the missing sibling's session gets recorded).
+      skipped.push({ agentId: d.agentId, label: d.label, note: d.note });
       continue;
     }
     const a = getAgent(d.agentId);
@@ -202,11 +240,14 @@ export function resume(opts: { apply?: boolean } = {}): ResumeResult {
   // filtered out as dead. Display-only — the REGISTRY keeps the truth: still
   // `dead` until --apply respawns it (applyResume patches the live record).
   const offered = new Map(offers.map((o) => [o.agentId, o.respawned ? "respawned" : "resumable"]));
+  const skippedIds = new Set(skipped.map((s) => s.agentId));
   const shown = rows
     .map((r) => {
       const display = offered.get(r.agentId);
       return display ? { ...r, status: display } : r;
     })
-    .filter((r) => r.status !== "dead");
-  return { rows: shown, pruned, offers };
+    // Skipped workers stay visible as dead — the table then agrees with the
+    // skip warnings (a row that just vanished would contradict them).
+    .filter((r) => r.status !== "dead" || skippedIds.has(r.agentId));
+  return { rows: shown, pruned, offers, skipped };
 }
