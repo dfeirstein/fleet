@@ -92,6 +92,128 @@ test("matrix: two agents resolving to ONE durable session are BOTH demoted to sk
   assert.equal(decisions[2]?.action, "resume"); // non-colliding resume survives the post-pass
 });
 
+test("matrix: a resume offer for a session LIVE on a kept agent demotes to skip (issue #23)", () => {
+  // Repro: dead agent B shares cwd /shared with alive agent A. The durable map
+  // records only A's session against that cwd, so B's cwd-lane probe uniquely
+  // matches A's LIVE session — without the live-claim pass, --apply would
+  // respawn a session that is already running in A's pane.
+  const live = parseHookSessions(
+    JSON.stringify({
+      version: 1,
+      sessions: {
+        "sess-live": {
+          sessionId: "sess-live",
+          workspaceId: "WS-LIVE",
+          surfaceId: "SURF-LIVE",
+          cwd: "/shared",
+          agentLifecycle: "running",
+        },
+      },
+    }),
+  )!;
+  const decisions = planReconcile(
+    [
+      cand({
+        agentId: "alive-a",
+        label: "alive-a",
+        alive: true,
+        surfaceId: "SURF-LIVE",
+        workspaceId: "WS-LIVE",
+        cwds: ["/shared"],
+      }),
+      cand({ agentId: "dead-b", label: "dead-b", cwds: ["/shared"] }),
+    ],
+    live,
+  );
+  assert.equal(decisions[0]?.action, "keep"); // the live agent is never demoted
+  assert.equal(decisions[1]?.action, "skip");
+  if (decisions[1]?.action === "skip") {
+    assert.match(decisions[1].note, /sess-live is already live on agent alive-a.*fail closed/);
+  }
+});
+
+test("matrix: a kept agent's contradicted cwd-lane match claims nothing — the dead owner's resume survives", () => {
+  // Inverse mis-attribution: alive A's session never reached the durable map,
+  // and A shares cwd /shared with dead B whose session IS recorded (with B's
+  // old workspaceId). A's cwd-lane fallthrough resolves B's session — but the
+  // record's workspaceId contradicts A's own, so it is not evidence the
+  // session is live on A and must not demote B's genuinely-own resume.
+  const durable = parseHookSessions(
+    JSON.stringify({
+      version: 1,
+      sessions: {
+        "sess-b": { sessionId: "sess-b", workspaceId: "WS-B", cwd: "/shared" },
+      },
+    }),
+  )!;
+  const decisions = planReconcile(
+    [
+      cand({
+        agentId: "alive-a",
+        label: "alive-a",
+        alive: true,
+        surfaceId: "SURF-A",
+        workspaceId: "WS-A",
+        cwds: ["/shared"],
+      }),
+      cand({ agentId: "dead-b", label: "dead-b", workspaceId: "WS-B", cwds: ["/shared"] }),
+    ],
+    durable,
+  );
+  assert.equal(decisions[0]?.action, "keep");
+  assert.equal(decisions[1]?.action, "resume"); // no lying live-collision demotion
+});
+
+test("matrix: duplicate-claimed AND live-claimed → the live-collision message wins (more diagnostic)", () => {
+  const live = parseHookSessions(
+    JSON.stringify({
+      version: 1,
+      sessions: {
+        "sess-live": {
+          sessionId: "sess-live",
+          workspaceId: "WS-LIVE",
+          surfaceId: "SURF-LIVE",
+          cwd: "/shared",
+        },
+      },
+    }),
+  )!;
+  const decisions = planReconcile(
+    [
+      cand({
+        agentId: "alive-a",
+        label: "alive-a",
+        alive: true,
+        surfaceId: "SURF-LIVE",
+        workspaceId: "WS-LIVE",
+        cwds: ["/shared"],
+      }),
+      // Both dead siblings cwd-match the same live session → n=2 duplicate
+      // claim AND a live claim; the message should say where the session is.
+      cand({ agentId: "dead-b", label: "dead-b", cwds: ["/shared"] }),
+      cand({ agentId: "dead-c", label: "dead-c", cwds: ["/shared"] }),
+    ],
+    live,
+  );
+  assert.equal(decisions[0]?.action, "keep");
+  for (const d of decisions.slice(1)) {
+    assert.equal(d.action, "skip");
+    if (d.action === "skip") assert.match(d.note, /already live on agent alive-a/);
+  }
+});
+
+test("matrix: a kept agent with no resolvable session contributes no claim (no false demotion)", () => {
+  const decisions = planReconcile(
+    [
+      cand({ agentId: "alive-x", label: "alive-x", alive: true, workspaceId: "WS-NEVER", cwds: ["/elsewhere"] }),
+      cand({ agentId: "dead-y", label: "dead-y", surfaceId: "SURF-GONE" }),
+    ],
+    DURABLE,
+  );
+  assert.equal(decisions[0]?.action, "keep");
+  assert.equal(decisions[1]?.action, "resume"); // dead-y's unique trace still resumes
+});
+
 test("matrix: no durable file at all → gone workers prune exactly as before", () => {
   const decisions = planReconcile(
     [cand({ alive: true }), cand({ agentId: "a2", workspaceId: "WS-GONE" })],

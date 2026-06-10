@@ -79,6 +79,7 @@ export type ReconcileDecision =
  *   registered + gone + traced       → resume (exact `claude --resume` argv)
  *   registered + gone + untraceable  → prune (no unambiguous trace anywhere)
  *   gone + trace COLLISION           → skip (see the post-pass below)
+ *   gone + trace LIVE on a kept agent → skip (the session is already running)
  * Unregistered durable sessions are not fleet's — ignored entirely.
  */
 export function planReconcile(
@@ -123,16 +124,54 @@ export function planReconcile(
   for (const d of decisions) {
     if (d.action === "resume") claims.set(d.sessionId, (claims.get(d.sessionId) ?? 0) + 1);
   }
+  // Alive agents claim too: `keep` decisions carry no sessionId, so a dead
+  // sibling sharing a cwd can uniquely match a session that is in fact LIVE in
+  // another pane and draw a resume offer for it (issue #23). Resolve each kept
+  // agent's session from the durable map; unresolvable kept agents simply
+  // contribute no claim. Keeps are never demoted — only colliding offers are.
+  const liveClaims = new Map<string, string>(); // sessionId → live agent's id
+  if (durable) {
+    for (const c of candidates) {
+      if (!c.alive) continue;
+      const sess = findSession(durable, {
+        surfaceId: c.surfaceId,
+        workspaceId: c.workspaceId,
+        cwds: c.cwds,
+      });
+      if (!sess) continue;
+      // A cwd-lane fallthrough can mis-attribute a SIBLING's session to the
+      // kept agent (the kept agent's own session never reached the map). If
+      // the record names a surface/workspace and the kept agent's differs,
+      // the attribution is contradicted — not evidence the session is live
+      // on this agent, so it must not demote anyone else's resume.
+      if (sess.surfaceId && c.surfaceId && sess.surfaceId !== c.surfaceId) continue;
+      if (sess.workspaceId && c.workspaceId && sess.workspaceId !== c.workspaceId) continue;
+      liveClaims.set(sess.sessionId, c.agentId);
+    }
+  }
   return decisions.map((d) => {
     if (d.action !== "resume") return d;
+    // The live-collision message wins over the generic duplicate-claim one:
+    // "already live on agent X" tells the user exactly where the session is.
+    const liveAgent = liveClaims.get(d.sessionId);
+    if (liveAgent) {
+      return {
+        agentId: d.agentId,
+        label: d.label,
+        action: "skip" as const,
+        note: `durable session ${d.sessionId} is already live on agent ${liveAgent} — not resuming it elsewhere (fail closed)`,
+      };
+    }
     const n = claims.get(d.sessionId) ?? 0;
-    if (n <= 1) return d;
-    return {
-      agentId: d.agentId,
-      label: d.label,
-      action: "skip",
-      note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
-    };
+    if (n > 1) {
+      return {
+        agentId: d.agentId,
+        label: d.label,
+        action: "skip" as const,
+        note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
+      };
+    }
+    return d;
   });
 }
 
