@@ -72,6 +72,11 @@ export interface Agent {
   /** The proof-gate verdict captured at finalize, reused for digest display so a
    *  re-digest doesn't re-run runnable checks. */
   finalProof?: "verified" | "missing" | "failed";
+  /** Stamped by `fleet done` when the proof gate PASSES (the moment the cmux
+   *  `done-<agentId>` signal is sent). While >= lastDispatchAt it is the
+   *  deterministic done fast-path: classifyLive treats the worker as
+   *  authoritatively idle once the screen stops showing live work. */
+  doneSignalAt?: string;
   spawnedAt: string; // ISO timestamp
   /** When the worker was last given work (spawn or send) — used to tell whether
    *  a "Completed" notification belongs to the current turn. */

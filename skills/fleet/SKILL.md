@@ -109,6 +109,51 @@ when the proof gate passes (judge ≠ generator, fails closed):
   run `fleet verify <agent> --check '<cmd>'` — a passing check is auto-attached
   as a proof — or `fleet done <agent> --proof test:'…'`/`file:<path>` yourself.
 - `note:'…'` is metadata only; it never satisfies the gate (no self-cert).
+- **A PASSING `fleet done` is also a deterministic signal**: it stamps the
+  registry (status/watch/daemon treat the worker as authoritatively finished
+  the moment its screen settles — no more inferring from an ambiguous prompt)
+  and emits the cmux signal `done-<agentId>`. A script can block on a specific
+  worker's verified completion with `cmux wait-for done-<agentId> --timeout 300`
+  (the signal is sticky — it survives until one waiter consumes it). Sticky
+  cuts both ways: an unconsumed `done-<agentId>` from a PREVIOUS turn satisfies
+  a later `wait-for` instantly, so drain it (`cmux wait-for done-<agentId>
+  --timeout 1`) before re-dispatching the same worker — or scope this waiting
+  pattern to single-turn workers. Note the signal fires only on an explicit
+  `fleet done`: digest's passive proof gate records `complete` but never
+  signals, so an external waiter is woken by `fleet done` alone. Workers
+  that never call `fleet done` still resolve via the screen/notification
+  inference, as always.
+
+## Browser self-verify for UI tasks (paste into worker briefs)
+
+Workers are plain Claude Code sessions with bash, and cmux auto-sets
+`CMUX_WORKSPACE_ID` in their terminals — so a worker's `cmux browser open`
+creates a browser split in its OWN workspace (isolation by default). Any worker
+doing UI work can self-verify it today, no MCP required. Include this recipe in
+every UI-task brief:
+
+> Before you report done, self-verify in cmux's browser rail:
+> 1. `cmux browser open <url>` — one browser surface for THIS task only; never
+>    reuse another task's surface.
+> 2. `cmux browser wait --load-state complete --timeout-ms 15000`
+> 3. `cmux browser snapshot --interactive` — read the page. Element refs
+>    (e1, e2…) go STALE after ANY DOM change: re-snapshot after every
+>    click/fill/navigation (or pass `--snapshot-after` on the action).
+> 4. Interact as needed: `cmux browser click|fill|type <ref> … --snapshot-after`.
+> 5. `cmux browser screenshot --out /tmp/<task>-verify.png`
+> 6. `cmux browser console list` and `cmux browser errors list` — confirm no
+>    new errors; explain any that appear.
+> 7. Put the screenshot PATH in your final report and attach it as proof:
+>    `fleet done $FLEET_AGENT_ID --proof file:/tmp/<task>-verify.png`.
+> If `snapshot` fails with `js_error` (some pages break rich snapshots), fall
+> back down the chain: `cmux browser get url` → `cmux browser get text body`,
+> and verify from text + screenshot.
+
+Hard limits of this rail (WKWebView): **no network mocking/interception, no
+responsive-viewport emulation, no offline mode, no trace/screencast** — they
+error `not_supported` even though help lists them. If the task needs those,
+route verification to a Chrome/Playwright MCP browser instead; don't promise
+them in a brief.
 
 ## Project memory: CLAUDE.md + .claude-docs (keep workers current by default)
 

@@ -18,6 +18,39 @@ export const DWELL_DEFAULTS: DwellConfig = {
   dispatchHoldMs: 15_000,
 };
 
+// ── Deterministic done-signal (P2b) ─────────────────────────────────────────
+// `fleet done` with a PASSING gate sends the cmux signal `done-<agentId>`
+// (`wait-for -S`) and stamps `doneSignalAt` in the registry. Consumers
+// (watch/daemon via snapshot→classifyLive) treat a fresh stamp as authoritative
+// idle-for-that-agent — a fast path ALONGSIDE screen/notification inference,
+// never replacing it: live screen evidence (running/awaiting/error) still wins,
+// and workers that never call `fleet done` resolve via inference as today.
+
+/** The cmux signal name announcing a gate-verified completion for an agent. */
+export function doneSignalName(agentId: string): string {
+  return `done-${agentId}`;
+}
+
+/** Inverse of doneSignalName: the agentId, or undefined for foreign signals. */
+export function parseDoneSignal(name: string): string | undefined {
+  const m = /^done-([A-Za-z0-9]+)$/.exec(name);
+  return m?.[1];
+}
+
+/**
+ * True iff a recorded done-signal belongs to the worker's CURRENT turn: it
+ * parses and is not older than the last dispatch. A re-dispatch (`fleet send`)
+ * advances lastDispatchAt past the stamp, so a stale signal can never mark the
+ * NEXT turn idle. Unparseable timestamps fail closed (no fast path).
+ */
+export function doneSignalFresh(doneSignalAt: string | undefined, lastDispatchAt: string): boolean {
+  if (!doneSignalAt) return false;
+  const done = Date.parse(doneSignalAt);
+  const dispatch = Date.parse(lastDispatchAt);
+  if (!Number.isFinite(done) || !Number.isFinite(dispatch)) return false;
+  return done >= dispatch;
+}
+
 export class IdleDwell {
   private idleSince: number | undefined;
   private beats = 0;

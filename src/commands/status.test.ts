@@ -38,6 +38,27 @@ test("classifyLive: screen rate-limit/error and feed blocks keep their precedenc
   assert.equal(classifyLive({ probe: "awaiting-input", hasBlock: false, notif: freshTurnEnd, lastDispatchAt: DISPATCH }), "awaiting-input");
 });
 
+test("classifyLive: a current-turn done-signal upgrades an ambiguous screen to authoritative idle (P2b)", () => {
+  // No notification, screen reads unknown/idle — inference alone would leave
+  // "unknown" active forever; the gate-verified done-signal resolves it.
+  for (const probe of ["unknown", "idle"] as const) {
+    const status = classifyLive({ probe, hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: true });
+    assert.equal(status, "idle");
+  }
+});
+
+test("classifyLive: live screen evidence still beats the done-signal (layers under B1/B4)", () => {
+  assert.equal(classifyLive({ probe: "running", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: true }), "running");
+  assert.equal(classifyLive({ probe: "awaiting-input", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: true }), "awaiting-input");
+  assert.equal(classifyLive({ probe: "error", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: true }), "error");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: true, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: true }), "blocked-on-you");
+});
+
+test("classifyLive: without a done-signal, inference is unchanged (workers that never call fleet done)", () => {
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: false }), "unknown");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH }), "unknown");
+});
+
 test("sibling notification misattribution no longer flips a running worker (B1, end-to-end)", () => {
   // Workers A (running) and B share workspace W; B emits "Completed".
   const idx = indexNotifications([

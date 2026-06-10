@@ -5,6 +5,7 @@ import { workspaceExists } from "../cmux.js";
 import { probeStatus } from "../status.js";
 import { listNotifications, indexNotifications, notificationFor, turnEnded, type CmuxNotification } from "../notifications.js";
 import { pendingBlocks, type PendingBlock } from "../events.js";
+import { doneSignalFresh } from "../quiescence.js";
 
 const ICON: Record<string, string> = {
   running: "●",
@@ -40,20 +41,33 @@ export interface FleetRow {
  * feed-confirmed block → blocked-on-you; else a screen y/n dialog →
  * awaiting-input; else a LIVE SPINNER → running — the screen is direct evidence
  * the worker is mid-turn, so it beats any turn-end notification (which may be a
- * sibling pane's broadcast or a stale frame — B1); else a fresh turn-end
- * notification → idle; else whatever the screen says.
+ * sibling pane's broadcast or a stale frame — B1) AND the done-signal (a worker
+ * that called `fleet done` is still mid-turn until its screen settles); else a
+ * current-turn done-signal → authoritatively idle (the deterministic fast path
+ * — upgrades an ambiguous post-turn screen that inference would leave
+ * "unknown"); else a fresh turn-end notification → idle; else whatever the
+ * screen says. Workers that never call `fleet done` resolve via inference
+ * exactly as before.
  */
 export function classifyLive(input: {
   probe: AgentStatus;
   hasBlock: boolean;
   notif: CmuxNotification | undefined;
   lastDispatchAt: string;
+  /** True when a gate-verified `fleet done` stamp belongs to the current turn
+   *  (see doneSignalFresh in quiescence.ts). Intentionally NOT capability-gated
+   *  (unlike the cmux signal emission in done.ts): the stamp is registry-only —
+   *  zero cmux dependency — and safe on any build because it sits BELOW live
+   *  screen evidence in the precedence, so it can only settle an ambiguous
+   *  quiet screen, never contradict a visible one. */
+  doneSignal?: boolean;
 }): AgentStatus {
-  const { probe, hasBlock, notif, lastDispatchAt } = input;
+  const { probe, hasBlock, notif, lastDispatchAt, doneSignal } = input;
   if (probe === "rate-limited" || probe === "error") return probe;
   if (hasBlock) return "blocked-on-you";
   if (probe === "awaiting-input") return "awaiting-input";
   if (probe === "running") return "running";
+  if (doneSignal) return "idle";
   if (turnEnded(notif, lastDispatchAt)) return "idle";
   return probe;
 }
@@ -85,6 +99,7 @@ export function snapshot(): FleetRow[] {
         hasBlock: agentHasBlock(a, blocks),
         notif: notificationFor(notifs, a.surfaceId, a.workspaceId ?? a.workspace),
         lastDispatchAt: a.lastDispatchAt,
+        doneSignal: doneSignalFresh(a.doneSignalAt, a.lastDispatchAt),
       });
     }
     patch(a.agentId, { status: status as never, lastSeen: new Date().toISOString() });
