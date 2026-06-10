@@ -3,10 +3,17 @@
 // separate tool, not the worker that wrote it) and flags any currency fact past
 // its TTL. Used after a wave to decide whether project memory needs a refresh.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { claudeMdPath, currencyJsonPath, CURRENCY_TTL_DAYS } from "../project-memory.js";
+import {
+  claudeMdPath,
+  claudeDocsDir,
+  CLAUDE_DOCS_DIR,
+  currencyJsonPath,
+  CURRENCY_TTL_DAYS,
+} from "../project-memory.js";
+import { verificationCoverage, type CoverageReport, type CoverageInput } from "../verification-coverage.js";
 
 /** Candidate locations for the claude-md-architect audit scorer. */
 function scorerPath(): string | undefined {
@@ -29,10 +36,14 @@ export interface AuditResult {
   staleCurrency: string[];
   currencyChecked: boolean;
   currencyState: CurrencyState;
+  /** Verification coverage of project memory (undefined if no memory to scan). */
+  coverage?: CoverageReport;
   /** Why the gate failed (empty on pass). */
   failReasons: string[];
   /** Explicitly-allowed soft cases, stated so the gate contract is visible. */
   gateNotes: string[];
+  /** Flagged-but-not-fatal findings (e.g. unverified memory). Lower quality, never hard-fail. */
+  warnings: string[];
   pass: boolean;
 }
 
@@ -77,6 +88,10 @@ export interface AuditDecisionInput {
   minScore: number;
   staleCurrency: string[];
   currencyState: CurrencyState;
+  /** Verification coverage of memory (optional; absent = not computed). */
+  coverage?: CoverageReport;
+  /** A memory file couldn't be read while computing coverage — fail closed. */
+  coverageReadError?: string;
 }
 
 /**
@@ -85,10 +100,20 @@ export interface AuditDecisionInput {
  * FAIL with a stated reason, never a silent pass. The ONE allowed soft case is
  * a currency cache that doesn't exist yet — and that is stated in the output
  * (gate contract visible), not silently skipped.
+ *
+ * Unverified memory is a WARNING, never a hard-fail by itself: a queued
+ * `unverified:` note is legitimate, but it must be visible (the fail→…→distill
+ * progression). An unreadable memory file, by contrast, is inconclusive → FAIL.
  */
-export function decideAudit(i: AuditDecisionInput): { pass: boolean; reasons: string[]; notes: string[] } {
+export function decideAudit(i: AuditDecisionInput): {
+  pass: boolean;
+  reasons: string[];
+  notes: string[];
+  warnings: string[];
+} {
   const reasons: string[] = [];
   const notes: string[] = [];
+  const warnings: string[] = [];
   if (!i.hasClaudeMd) {
     reasons.push("no CLAUDE.md — run `fleet bootstrap`");
   } else if (!i.scorerFound) {
@@ -107,13 +132,53 @@ export function decideAudit(i: AuditDecisionInput): { pass: boolean; reasons: st
   } else if (i.staleCurrency.length > 0) {
     reasons.push(`${i.staleCurrency.length} currency fact(s) past TTL — run \`fleet currency\``);
   }
-  return { pass: reasons.length === 0, reasons, notes };
+  if (i.coverageReadError) {
+    reasons.push(`memory file unreadable while scoring coverage (${i.coverageReadError}) — inconclusive, fail closed`);
+  } else if (i.coverage && i.coverage.unverified.length > 0) {
+    const refs = i.coverage.unverified.map((u) => `${u.file}:${u.line} (${u.marker})`);
+    const shown = refs.slice(0, 8).join(", ") + (refs.length > 8 ? "…" : "");
+    warnings.push(
+      `verification coverage: ${i.coverage.verified}/${i.coverage.total} claims checked (${i.coverage.percent}%) — ` +
+        `${i.coverage.unverified.length} unverified; verify each or mark \`unverified:\` and queue it: ${shown}`,
+    );
+  }
+  return { pass: reasons.length === 0, reasons, notes, warnings };
+}
+
+/**
+ * Read the project's memory docs and score verification coverage. CLAUDE.md is
+ * scanned in gotchas-only scope; every `.claude-docs/*.md` body in full. An
+ * unreadable file is reported (fail closed) rather than silently dropped.
+ */
+function gatherCoverage(cwd: string, hasClaudeMd: boolean): { coverage?: CoverageReport; readError?: string } {
+  const inputs: CoverageInput[] = [];
+  try {
+    if (hasClaudeMd) {
+      inputs.push({ file: "CLAUDE.md", content: readFileSync(claudeMdPath(cwd), "utf8"), gotchasOnly: true });
+    }
+    const docsDir = claudeDocsDir(cwd);
+    if (existsSync(docsDir)) {
+      for (const name of readdirSync(docsDir).sort()) {
+        if (!name.endsWith(".md")) continue;
+        inputs.push({
+          file: join(CLAUDE_DOCS_DIR, name),
+          content: readFileSync(join(docsDir, name), "utf8"),
+          gotchasOnly: false,
+        });
+      }
+    }
+  } catch (err) {
+    return { readError: (err as Error).message };
+  }
+  if (inputs.length === 0) return {};
+  return { coverage: verificationCoverage(inputs) };
 }
 
 /**
  * Audit a project's durable memory. `minScore` is the gate threshold (default
  * 60 = grade C or better). Passes when CLAUDE.md exists, scores >= minScore, and
- * no currency fact is stale.
+ * no currency fact is stale. Verification coverage of memory is reported as a
+ * warning (unverified claims lower quality but don't hard-fail by themselves).
  */
 export function auditDocs(opts: { cwd: string; minScore?: number }): AuditResult {
   const minScore = opts.minScore ?? 60;
@@ -139,13 +204,16 @@ export function auditDocs(opts: { cwd: string; minScore?: number }): AuditResult
   }
 
   const { stale, state } = staleCurrency(opts.cwd);
-  const { pass, reasons, notes } = decideAudit({
+  const { coverage, readError } = gatherCoverage(opts.cwd, hasClaudeMd);
+  const { pass, reasons, notes, warnings } = decideAudit({
     hasClaudeMd,
     scorerFound: scorer !== undefined,
     score,
     minScore,
     staleCurrency: stale,
     currencyState: state,
+    coverage,
+    coverageReadError: readError,
   });
 
   return {
@@ -156,8 +224,10 @@ export function auditDocs(opts: { cwd: string; minScore?: number }): AuditResult
     staleCurrency: stale,
     currencyChecked: state === "ok",
     currencyState: state,
+    coverage,
     failReasons: reasons,
     gateNotes: notes,
+    warnings,
     pass,
   };
 }

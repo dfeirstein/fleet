@@ -91,6 +91,10 @@ E2E. See `.claude-docs/verification.md`.
   failing test means fix the integration, never delete the test; in CHANGELOG keep
   your own bullet under Unreleased and move merged siblings' bullets under their date
   heading with `(#PR)`.
+- **Memory is verified like work.** Each gotcha/claim in CLAUDE.md/.claude-docs states
+  how it was checked (command run, doc + date, observed behavior) or is flagged pending
+  a check and queued; `fleet audit-docs` scores verification coverage and we drop guesses
+  we can't turn into a checked rule (fail → investigate → verify → distill → consult).
 
 ## Behavioral Rules
 Bias toward caution over speed. Use judgment on trivial tasks.
