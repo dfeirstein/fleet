@@ -79,6 +79,7 @@ export type ReconcileDecision =
  *   registered + gone + traced       → resume (exact `claude --resume` argv)
  *   registered + gone + untraceable  → prune (no unambiguous trace anywhere)
  *   gone + trace COLLISION           → skip (see the post-pass below)
+ *   gone + trace LIVE on a kept agent → skip (the session is already running)
  * Unregistered durable sessions are not fleet's — ignored entirely.
  */
 export function planReconcile(
@@ -123,16 +124,44 @@ export function planReconcile(
   for (const d of decisions) {
     if (d.action === "resume") claims.set(d.sessionId, (claims.get(d.sessionId) ?? 0) + 1);
   }
+  // Alive agents claim too: `keep` decisions carry no sessionId, so a dead
+  // sibling sharing a cwd can uniquely match a session that is in fact LIVE in
+  // another pane and draw a resume offer for it (issue #23). Resolve each kept
+  // agent's session from the durable map; unresolvable kept agents simply
+  // contribute no claim. Keeps are never demoted — only colliding offers are.
+  const liveClaims = new Map<string, string>(); // sessionId → live agent's id
+  if (durable) {
+    for (const c of candidates) {
+      if (!c.alive) continue;
+      const sess = findSession(durable, {
+        surfaceId: c.surfaceId,
+        workspaceId: c.workspaceId,
+        cwds: c.cwds,
+      });
+      if (sess) liveClaims.set(sess.sessionId, c.agentId);
+    }
+  }
   return decisions.map((d) => {
     if (d.action !== "resume") return d;
     const n = claims.get(d.sessionId) ?? 0;
-    if (n <= 1) return d;
-    return {
-      agentId: d.agentId,
-      label: d.label,
-      action: "skip",
-      note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
-    };
+    if (n > 1) {
+      return {
+        agentId: d.agentId,
+        label: d.label,
+        action: "skip" as const,
+        note: `durable session ${d.sessionId} matched ${n} registered agents — ambiguous, resuming none (fail closed)`,
+      };
+    }
+    const liveAgent = liveClaims.get(d.sessionId);
+    if (liveAgent) {
+      return {
+        agentId: d.agentId,
+        label: d.label,
+        action: "skip" as const,
+        note: `durable session ${d.sessionId} is already live on agent ${liveAgent} — not resuming it elsewhere (fail closed)`,
+      };
+    }
+    return d;
   });
 }
 
