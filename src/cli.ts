@@ -127,9 +127,10 @@ Commands:
                                              artifacts; PASS auto-attaches the proof
   browser-state save|load <project>          Save/load the cmux browser session
         [--import --from <browser>           (~/.fleet/browser-states/<project>.json,
-         [--domain <d>]] [--url <page>]      mode 600 — live cookies); --import seeds
-                                             from a desktop browser first; save needs
-                                             a reachable http(s) page (--url to pick)
+         [--domain <d>]] --url <page>        mode 600 — live cookies); --import seeds
+                                             from a desktop browser first; save REQUIRES
+                                             --url, a reachable http(s) page (the state
+                                             collector runs in-page — use your local app)
   review <agent>                             Open review panels for a worker: visual
                                              diff (branch vs base) + latest wave report
   done <agent> --proof <kind:ref> [--proof…] Attach proof-of-work + run the gate
@@ -323,7 +324,9 @@ async function main(): Promise<void> {
       if (sub === "save") {
         const importFrom = flags.import === true ? str(flags.from) : undefined;
         if (flags.import === true && !importFrom) return fail("browser-state --import requires --from <browser> (e.g. chrome, safari)");
-        const path = saveState(project, { importFrom, domain: str(flags.domain), url: str(flags.url) });
+        const url = str(flags.url);
+        if (!url) return fail("browser-state save requires --url <reachable http(s) page> (the state collector runs in-page; point it at your local app)");
+        const path = saveState(project, { importFrom, domain: str(flags.domain), url });
         console.log(`saved browser state → ${path} (mode 600 — holds live session cookies, keep it out of repos)`);
       } else {
         const path = loadState(project);

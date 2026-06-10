@@ -18,7 +18,7 @@
 //     reads nothing from ~/.fleet — see src/commands/digest.ts.
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   browserImport,
   browserOpen,
@@ -46,10 +46,20 @@ export function statePathFor(project: string, base = browserStatesDir()): string
 
 /**
  * Refuse to place a state file anywhere inside a git repo/worktree (it would
- * be committable). Pure given an injected repo detector; exported for tests.
+ * be committable). The target dir may not exist yet on FIRST save, and
+ * `repoRoot` returns undefined for a nonexistent cwd (git exits 128, "cannot
+ * change to …") — which would pass this check vacuously. So walk up to the
+ * nearest EXISTING ancestor and assert on that: a not-yet-created subdir of a
+ * repo is still inside the repo. Exported for tests (detector injectable).
  */
 export function assertOutsideRepo(dir: string, gitRootOf: (d: string) => string | undefined = repoRoot): void {
-  const root = gitRootOf(dir);
+  let probe = resolve(dir);
+  while (!existsSync(probe)) {
+    const parent = dirname(probe);
+    if (parent === probe) break; // filesystem root
+    probe = parent;
+  }
+  const root = gitRootOf(probe);
   if (root) {
     throw new Error(
       `browser-state: refusing to write session cookies inside a git repo/worktree (${dir} is in ${root}) — ` +
@@ -86,7 +96,7 @@ function withScratchBrowser<T>(startUrl: string, fn: (surfaceId: string) => T): 
   }
 }
 
-export function saveState(project: string, opts: { importFrom?: string; domain?: string; url?: string } = {}): string {
+export function saveState(project: string, opts: { importFrom?: string; domain?: string; url: string }): string {
   const path = statePathFor(project);
   assertOutsideRepo(dirname(path));
   mkdirSync(dirname(path), { recursive: true });
@@ -94,12 +104,12 @@ export function saveState(project: string, opts: { importFrom?: string; domain?:
   if (opts.importFrom) browserImport({ from: opts.importFrom, domain: opts.domain });
   // `state save` runs its collector as in-page JS, so the surface needs a real
   // http(s) origin loaded — about:blank/data: throw js_error (verified live).
-  // The dump itself is profile-wide regardless of which page is showing.
-  const startUrl = opts.url ?? "https://example.com";
-  withScratchBrowser(startUrl, (s) => {
+  // The dump itself is profile-wide regardless of which page is showing. The
+  // URL is caller-provided (required): no default external network touch.
+  withScratchBrowser(opts.url, (s) => {
     if (!browserWaitLoaded(s, 15_000)) {
       throw new Error(
-        `browser-state: could not load ${startUrl} — \`state save\` needs a reachable http(s) page; pass --url <page> (e.g. your local app)`,
+        `browser-state: could not load ${opts.url} — \`state save\` needs a reachable http(s) page (e.g. your local app)`,
       );
     }
     browserStateSave(s, path);

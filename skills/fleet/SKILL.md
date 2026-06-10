@@ -44,7 +44,8 @@ fleet verify <agent> --visual <url>             Browser-backed eval gate: fails 
     [--expect-text <t>] [--exact-url]           timeout / page errors / off-origin final
     [--state <project>]                         URL / missing text; PASS attaches proof
 fleet browser-state save|load <project>         Save/load an authenticated browser session
-    [--import --from <browser> [--domain <d>]]  (mode-600 file in ~/.fleet, never in a repo)
+    [--import --from <browser> [--domain <d>]]  (mode-600 file in ~/.fleet, never in a repo;
+    --url <page>                                save REQUIRES --url, a reachable http(s) page)
 fleet review <agent>                            Open review panels: visual diff (branch vs
                                                 base) + the worker's latest wave report
 fleet done <agent> --proof <kind:ref> [--proof …]  Attach proof-of-work + run the gate

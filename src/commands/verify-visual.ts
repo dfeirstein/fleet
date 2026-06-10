@@ -153,10 +153,14 @@ export function verifyVisual(
     // auto-attach); FAIL → never attach.
     if (pass) {
       const proof: ProofArtifact = { kind: "visual", ref: url, url, artifact: shotPath, attachedAt: new Date().toISOString() };
-      if (!(agent.proofs ?? []).some((p) => p.kind === "visual" && p.artifact === proof.artifact)) {
-        patch(agent.agentId, { proofs: [...(agent.proofs ?? []), proof] });
-        lines.push(`✓ proof attached: visual:${url} (artifact ${shotPath})`);
-      }
+      // REPLACE any prior machine visual proof for the same URL rather than
+      // appending: artifact paths are timestamped, gateProof requires EVERY
+      // checkable proof to pass, and a cleaned-up old screenshot would flip the
+      // agent to proof-failed despite this newer pass. Hand-attached legacy
+      // visual proofs (no artifact field) are left alone.
+      const others = (agent.proofs ?? []).filter((p) => !(p.kind === "visual" && p.artifact !== undefined && p.url === url));
+      patch(agent.agentId, { proofs: [...others, proof] });
+      lines.push(`✓ proof attached: visual:${url} (artifact ${shotPath})`);
     }
 
     appendOutcome({
