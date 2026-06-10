@@ -45,6 +45,9 @@ export function notifyOrchestrator(message: string, urgent: boolean): Delivery {
     stuckMinutes: DAEMON_DEFAULTS.stuckMinutes,
     alertCooldownSec: DAEMON_DEFAULTS.alertCooldownSec,
     proactive: DAEMON_DEFAULTS.proactive,
+    cpuHogPercent: DAEMON_DEFAULTS.cpuHogPercent,
+    cpuHogBeats: DAEMON_DEFAULTS.cpuHogBeats,
+    memHogMb: DAEMON_DEFAULTS.memHogMb,
   };
   return routeMessage(cfg, message, urgent);
 }
