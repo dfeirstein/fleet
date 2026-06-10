@@ -54,6 +54,7 @@ E2E. See `.claude-docs/verification.md`.
 
 ### Before Submitting
 1. `npm run typecheck` passes.
+1. Every PR adds its entry to `CHANGELOG.md` under **Unreleased** (one terse bullet, PR number added at merge).
 2. Relative imports end in `.js`; type-only imports use `import type` (ESM +
    `verbatimModuleSyntax`).
 3. Any new cmux interaction went through `src/cmux.ts` — never a fresh `execFileSync`.
