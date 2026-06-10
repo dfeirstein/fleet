@@ -147,6 +147,17 @@ check itself — independent, not the worker's self-report), or attach an
 artifact with `fleet done <agent> --proof file:<path>`. A `note:` proof is
 metadata only and never satisfies the gate — the gate fails closed.
 
+For **UI tasks**, make the worker self-verify on cmux's browser rail before it
+attaches proof. Workers have bash + `CMUX_WORKSPACE_ID`, so `cmux browser open`
+gives each one an isolated browser surface in its own workspace. The fleet
+skill has the copy-pasteable recipe (open → `wait --load-state complete` →
+`snapshot` → `screenshot --out` → `console list`/`errors list` → attach the
+screenshot as `--proof file:`); include it in every UI brief. The footguns:
+one surface per task; snapshot refs go stale after ANY DOM change
+(re-snapshot); on `js_error` fall back `get url` → `get text body`; network
+mocking and responsive viewports are NOT on this rail — route those to a
+Chrome/Playwright MCP browser.
+
 This applies to **your own** work too: even a Captain-authored feature gets an
 independent reviewer, and **fixes are re-verified by the reviewer, not the fixer**
 — the generator is blind to its own blocker. (This wave the reviewer caught a

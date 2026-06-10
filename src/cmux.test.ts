@@ -3,7 +3,7 @@
 // transcript text can't cause spurious retry-Enters. Run with `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inputBoxRegion } from "./cmux.js";
+import { inputBoxRegion, helpListsVerb } from "./cmux.js";
 
 const MSG = "fix the login bug in auth.ts";
 
@@ -55,4 +55,24 @@ test("no box on screen falls back to the last 9 lines", () => {
 test("unmatched ╰ (no ╭ above) falls back to the tail", () => {
   const screen = ["some output", "╰──────────╯", MSG].join("\n");
   assert.ok(inputBoxRegion(screen).includes(MSG));
+});
+
+// Capability gating for the tmux-compat verbs (wait-for / pipe-pane): they are
+// NOT in `cmux capabilities`, so support is decided from the help text.
+const HELP_WITH_VERBS = ["  read-screen [...]", "  pipe-pane --command <shell-command> [...]", "  wait-for [-S|--signal] <name> [--timeout <seconds>]"].join("\n");
+
+test("helpListsVerb: detects listed tmux-compat verbs", () => {
+  assert.equal(helpListsVerb(HELP_WITH_VERBS, "wait-for"), true);
+  assert.equal(helpListsVerb(HELP_WITH_VERBS, "pipe-pane"), true);
+});
+
+test("helpListsVerb: an older cmux without the verbs gates OFF (fail-safe)", () => {
+  const oldHelp = "  read-screen [...]\n  send [...]";
+  assert.equal(helpListsVerb(oldHelp, "wait-for"), false);
+  assert.equal(helpListsVerb(oldHelp, "pipe-pane"), false);
+  assert.equal(helpListsVerb("", "wait-for"), false); // unreachable cmux → ""
+});
+
+test("helpListsVerb: a mid-line mention is not a command listing", () => {
+  assert.equal(helpListsVerb("  send <text>  (see also wait-for)", "wait-for"), false);
 });

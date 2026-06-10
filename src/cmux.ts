@@ -145,6 +145,62 @@ export function streamEvents(opts: {
   };
 }
 
+// ── tmux-compat verbs (wait-for, pipe-pane) ─────────────────────────────────
+// These are CLI-side compat commands NOT advertised in `cmux capabilities`
+// (methods list), so the capability gate greps the cached `cmux help` text
+// instead. Fail-safe: any error reads as "unsupported" so consumers behave
+// exactly as on an older cmux.
+
+let cachedHelpText: string | undefined;
+
+function helpText(): string {
+  if (cachedHelpText === undefined) {
+    try {
+      cachedHelpText = cmux(["help"]);
+    } catch {
+      cachedHelpText = "";
+    }
+  }
+  return cachedHelpText;
+}
+
+/** Pure gating decision: does this help text list `verb` as a command (a line
+ *  starting with the verb)? Exported for tests. */
+export function helpListsVerb(help: string, verb: string): boolean {
+  return new RegExp(`^\\s*${verb}\\b`, "m").test(help);
+}
+
+/** True iff this cmux build lists the `wait-for` signal verb. */
+export function signalsSupported(): boolean {
+  return helpListsVerb(helpText(), "wait-for");
+}
+
+/** True iff this cmux build lists the `pipe-pane` verb. */
+export function pipePaneSupported(): boolean {
+  return helpListsVerb(helpText(), "pipe-pane");
+}
+
+/**
+ * Send (signal) a named cmux synchronization point: `wait-for -S <name>`.
+ * Verified semantics (live binary, 2026-06-09): the signal wakes every process
+ * currently blocked in `cmux wait-for <name>`; with no waiter it is STICKY —
+ * the next single wait returns immediately and consumes it.
+ */
+export function sendSignal(name: string): void {
+  cmux(["wait-for", "-S", name]);
+}
+
+/**
+ * Dump a pane's text (screen + scrollback) through a shell command:
+ * `pipe-pane --command`. Verified semantics (live binary, 2026-06-09): this is
+ * a ONE-SHOT asynchronous dump, NOT tmux's continuous stream — the command
+ * receives the pane's current content on stdin once and the call returns before
+ * the dump lands. Callers that want fresh content re-invoke it.
+ */
+export function pipePaneDump(target: Target, command: string): void {
+  cmux(["pipe-pane", ...addr(target), "--command", command]);
+}
+
 /**
  * Extract the first `<kind>:<n>` ref from cmux stdout.
  * e.g. parseRef("OK workspace:4", "workspace") === "workspace:4"

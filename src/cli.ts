@@ -135,7 +135,10 @@ Commands:
                                              diff (branch vs base) + latest wave report
   done <agent> --proof <kind:ref> [--proof…] Attach proof-of-work + run the gate
         [--summary "<t>"]                    (test:<cmd>|file:<path>|note:<text>|…;
-                                             fails closed — no/failed proof ≠ complete)
+                                             fails closed — no/failed proof ≠ complete.
+                                             A PASS also emits the cmux signal
+                                             done-<agentId> — block on it with
+                                             'cmux wait-for done-<agentId>')
   bootstrap [--cwd P] [--force]              Give a project strong durable memory
                                              (CLAUDE.md + .claude-docs via a scribe)
   currency [--cwd P] [--force]               Resolve latest versions/model-IDs from
@@ -146,6 +149,8 @@ Commands:
         [clear]                              no args renders them; reload after /compact
   digest                                     Capture live workers' output to disk
                                              (.claude-docs/.../waves) + return digests
+                                             (prefers each worker's capture file —
+                                             the true final report — over the screen)
   recall <query...> [--cwd P] [--qmd]        Search the durable store (outcome log +
                                              .claude-docs) via grep; --qmd uses QMD
   profile [--cwd P]                          Write a per-project profile (.claude-docs)

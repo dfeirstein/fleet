@@ -21,6 +21,7 @@ import {
 } from "../cmux.js";
 import { upsert, remove, patch, listAgents, sessionId, type Agent } from "../registry.js";
 import { appendOutcome } from "../outcomes.js";
+import { refreshCapture } from "../capture-log.js";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { repoRoot, currentBranch, addWorktree } from "../git.js";
@@ -350,6 +351,14 @@ export function spawn(opts: SpawnOptions): Agent {
       console.error(`warning: --with-browser pane not opened for ${label}: ${(err as Error).message}`);
     }
   }
+
+  // Wire output capture (P2b): take the first pipe-pane dump into
+  // ~/.fleet/<session>/capture/<agentId>.log now that the pane is live, so the
+  // capture file exists from spawn. Refreshed again at `fleet done` and digest
+  // (cmux's pipe-pane is a one-shot dump, not a stream — see capture-log.ts).
+  // Best-effort + capability-gated: failure never blocks a spawn. Targets the
+  // TERMINAL surface explicitly, so the --with-browser pane never confuses it.
+  refreshCapture(agent);
 
   // Clear the one-time bypass-permissions dialog so --yolo workers don't stall.
   if (opts.launch && opts.mode === "yolo") {

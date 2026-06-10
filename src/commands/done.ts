@@ -7,6 +7,9 @@
 import { resolveAgent, patch, type Agent } from "../registry.js";
 import { parseProof, gateAgentProof, proofState, type GateResult } from "../proof.js";
 import { appendOutcome } from "../outcomes.js";
+import { sendSignal, signalsSupported } from "../cmux.js";
+import { doneSignalName } from "../quiescence.js";
+import { refreshCapture } from "../capture-log.js";
 
 export interface DoneResult {
   agent: Agent;
@@ -26,6 +29,27 @@ export function done(idOrLabel: string, specs: string[], summary?: string): Done
   const updated: Agent = { ...agent, proofs };
   const result = gateAgentProof(updated);
   const state = proofState(result.verdict);
+
+  // The worker's final report is on its pane right now — snapshot it into the
+  // capture file so a later digest reads the TRUE report, not whatever the
+  // screen shows by then. Best-effort, any verdict.
+  refreshCapture(updated);
+
+  // Deterministic done fast-path (P2b): a PASSING gate — and only a passing
+  // one — stamps the registry and emits the cmux signal `done-<agentId>`
+  // (`wait-for -S`; sticky, so `cmux wait-for done-<id>` is a reliable sync
+  // point). The stamp is the durable record consumers classify on; on a cmux
+  // without the verb the stamp still works and the signal is skipped.
+  if (result.verdict === "complete") {
+    patch(agent.agentId, { doneSignalAt: new Date().toISOString() });
+    if (signalsSupported()) {
+      try {
+        sendSignal(doneSignalName(agent.agentId));
+      } catch {
+        // signal is a nicety; the registry stamp is the source of truth
+      }
+    }
+  }
 
   // Honest trajectory store: a `complete` event is written ONLY when the gate
   // verifies. A missing/failed gate logs a verify-fail so the audit trail never

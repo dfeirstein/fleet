@@ -8,12 +8,14 @@
 // handle (use `fleet recall` to pull detail back), never the raw transcript.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { readScreen } from "../cmux.js";
 import { listAgents, patch, target, type Agent } from "../registry.js";
 import { classifyScreen } from "../status.js";
 import { CLAUDE_DOCS_DIR } from "../project-memory.js";
 import { appendOutcome } from "../outcomes.js";
 import { gateAgentProof, proofState } from "../proof.js";
+import { refreshCapture, readCapture, captureTail } from "../capture-log.js";
 
 export interface WorkerDigest {
   agentId: string;
@@ -53,6 +55,13 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
   const agents = (opts.agents ?? listAgents()).filter((a) => a.status !== "dead");
   const digests: WorkerDigest[] = [];
 
+  // Refresh every worker's capture file first (pipe-pane is a one-shot async
+  // dump — see capture-log.ts), then give the dumps one shared beat to land.
+  // Capability-gated + best-effort: with no pipe-pane this is a no-op and the
+  // screen scrape below carries the digest, exactly as before.
+  const anyRefreshed = agents.map((a) => refreshCapture(a)).some(Boolean);
+  if (anyRefreshed) execFileSync("sleep", ["1.2"]);
+
   for (const a of agents) {
     let raw = "";
     try {
@@ -61,14 +70,23 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       // worker pane gone / unreadable — digest with status only
     }
 
+    // Prefer the capture file (full scrollback up to ~2MB, refreshed at spawn /
+    // `fleet done` / just above — it holds the worker's TRUE final report even
+    // after the live screen scrolled past it) over the 200-line scrape. Fall
+    // back to the scrape when no capture exists. The LIVE screen still owns
+    // classification below (B4) — a stale capture must never decide stillWorking.
+    const captured = readCapture(a.agentId);
+    const report = captured ?? raw;
+    const source = captured ? "capture file (pipe-pane dump)" : "live-screen scrape";
+
     let wavePath: string | undefined;
-    if (raw.trim()) {
+    if (report.trim()) {
       const dir = join(projectDir(a), CLAUDE_DOCS_DIR, "waves", waveId);
       try {
         mkdirSync(dir, { recursive: true });
         wavePath = join(dir, `${a.label.replace(/[^a-zA-Z0-9._-]/g, "_")}.md`);
-        const header = `# Wave ${waveId} — ${a.label}\n\n- agent: ${a.agentId}\n- status: ${a.status}\n- cwd: ${a.cwd}\n- objective: ${a.task}\n\n---\n\n`;
-        writeFileSync(wavePath, header + "```\n" + raw.trimEnd() + "\n```\n");
+        const header = `# Wave ${waveId} — ${a.label}\n\n- agent: ${a.agentId}\n- status: ${a.status}\n- cwd: ${a.cwd}\n- objective: ${a.task}\n- source: ${source}\n\n---\n\n`;
+        writeFileSync(wavePath, header + "```\n" + report.trimEnd() + "\n```\n");
       } catch {
         wavePath = undefined; // disk write failed — digest still returns the tail
       }
@@ -144,7 +162,7 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       objective: (a.task || "").replace(/\s+/g, " ").slice(0, 140),
       project: projectDir(a),
       wavePath,
-      tail: lastLines(raw, 12),
+      tail: captured ? captureTail(captured, 12) : lastLines(raw, 12),
       proof,
       stillWorking: stillWorking || undefined,
     });

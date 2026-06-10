@@ -5,6 +5,7 @@ import { sendKey, closeWorkspace, closeSurface, workspaceExists } from "../cmux.
 import { listAgents, resolveAgent, remove, handle, target, type Agent } from "../registry.js";
 import { hasChanges, commitAll, removeWorktree } from "../git.js";
 import { appendOutcome } from "../outcomes.js";
+import { removeCapture } from "../capture-log.js";
 
 /** Branches left behind by killed worktree workers, for the caller to report. */
 export const reviewBranches: string[] = [];
@@ -96,6 +97,9 @@ function killOne(agent: Agent): void {
     }
     reviewBranches.push(branch);
   }
+  // Capture cleanup: closing the pane already ended any in-flight pipe-pane
+  // dump (one-shot — nothing persistent to stop); remove the capture file.
+  removeCapture(agent.agentId);
   // Trajectory store: record final disposition (Move 1). Best-effort.
   appendOutcome({
     event: "kill",
