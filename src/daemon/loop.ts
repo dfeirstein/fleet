@@ -12,6 +12,7 @@ import { snapshot } from "../commands/status.js";
 import { resume } from "../commands/resume.js";
 import { acceptBypassDialog } from "../commands/spawn.js";
 import { updateSidebar, setHeartbeat } from "../dashboard.js";
+import { syncSidebar, sidebarTheme } from "../sidebar.js";
 import {
   loadSharedSettings,
   writeSharedState,
@@ -43,6 +44,8 @@ function configForCaptain(o: OrchestratorRecord, s: SharedSettings): DaemonConfi
     stuckMinutes: s.stuckMinutes,
     alertCooldownSec: s.alertCooldownSec,
     proactive: s.proactive,
+    sidebarColors: s.sidebarColors,
+    sidebarLabels: s.sidebarLabels,
   };
 }
 
@@ -79,6 +82,11 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const stuckThreshMs = cfg.stuckMinutes * 60_000;
   const cooldownMs = cfg.alertCooldownSec * 1000;
   const agents = listAgents();
+
+  // Mission control: sync each worker WORKSPACE's sidebar color + description
+  // to its classified state (snapshot() above refreshed agent statuses).
+  // On-change-only via the per-Captain paint fingerprints; capability-gated.
+  mem.sidebarPaint = syncSidebar(agents, sidebarTheme({ colors: cfg.sidebarColors, labels: cfg.sidebarLabels }), mem.sidebarPaint);
 
   for (const a of agents) {
     if (a.status === "dead") continue;

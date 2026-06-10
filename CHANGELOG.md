@@ -4,7 +4,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
-_(nothing pending)_
+- **Mission-control surfaces + atomic grid**: worker workspaces auto-group under a fleet-owned "fleet: \<session\>" sidebar group with daemon-synced state colors/descriptions (on-change-only, configurable, capability-gated; kill prunes membership); `fleet grid` spawns the whole pane grid in ONE `new-workspace --layout` call (legacy split-loop fallback); `fleet setup --dock` pins `fleet watch` + `cmux feed tui` into `.cmux/dock.json` (JSONC-safe merge); new `fleet log` milestone breadcrumbs.
 
 ## 2026-06-09
 

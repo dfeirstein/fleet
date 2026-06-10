@@ -17,10 +17,13 @@ export interface DaemonMemory {
   /** Stable-idle dwell: wave-complete only after sustained all-idle (B2) —
    *  a single misclassified beat must not announce a wave. */
   idleDwell: IdleDwell;
+  /** workspace → last-applied sidebar paint fingerprint (color|description),
+   *  so the state-lamp sync only writes on CHANGE, never per-beat repaints. */
+  sidebarPaint: Record<string, string>;
 }
 
 export function newMemory(): DaemonMemory {
-  return { lastAlert: {}, screenSince: {}, waveActive: false, idleDwell: new IdleDwell() };
+  return { lastAlert: {}, screenSince: {}, waveActive: false, idleDwell: new IdleDwell(), sidebarPaint: {} };
 }
 
 /**
