@@ -4,7 +4,8 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
-_(nothing pending)_
+### Docs
+- **README refresh + real screenshots**: Commands table and `src/` map brought current with the actual surface (adds `done`/`review`/`prompts`/`reply`/`digest` rows, `events.ts`/`proof.ts`/`project-memory.ts`, and the proof-of-work gate + project-memory subsystem notes); embeds live hero/`fleet status`/`fleet doctor` screenshots in `docs/screenshots/`. (#25)
 
 ## 2026-06-10
 
