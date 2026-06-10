@@ -10,7 +10,7 @@
 // file's tail over the live-screen scrape; kill removes the file.
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, statSync } from "node:fs";
 import { pipePaneDump, pipePaneSupported } from "./cmux.js";
 import { sessionId, target, type Agent } from "./registry.js";
 
@@ -76,11 +76,14 @@ export function refreshCapture(agent: Agent): boolean {
   }
 }
 
-/** The capture file's content, or undefined when absent/empty/unreadable. */
-export function readCapture(agentId: string): string | undefined {
+/** The capture file's content + write time (for staleness checks against the
+ *  dump request), or undefined when absent/empty/unreadable. */
+export function readCapture(agentId: string): { content: string; mtimeMs: number } | undefined {
   try {
-    const content = readFileSync(captureFilePath(agentId), "utf8");
-    return content.trim() ? content : undefined;
+    const path = captureFilePath(agentId);
+    const content = readFileSync(path, "utf8");
+    if (!content.trim()) return undefined;
+    return { content, mtimeMs: statSync(path).mtimeMs };
   } catch {
     return undefined;
   }

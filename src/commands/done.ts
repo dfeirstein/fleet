@@ -38,8 +38,11 @@ export function done(idOrLabel: string, specs: string[], summary?: string): Done
   // Deterministic done fast-path (P2b): a PASSING gate — and only a passing
   // one — stamps the registry and emits the cmux signal `done-<agentId>`
   // (`wait-for -S`; sticky, so `cmux wait-for done-<id>` is a reliable sync
-  // point). The stamp is the durable record consumers classify on; on a cmux
-  // without the verb the stamp still works and the signal is skipped.
+  // point). Capability-gating is DELIBERATELY asymmetric: only the cmux signal
+  // emission is gated (the verb may not exist on an older build) — the registry
+  // stamp is not, because it has zero cmux dependency (a registry write read
+  // back by classifyLive) and is safe on any build: it layers UNDER live-screen
+  // evidence, so it can only resolve an already-quiet screen, never override one.
   if (result.verdict === "complete") {
     patch(agent.agentId, { doneSignalAt: new Date().toISOString() });
     if (signalsSupported()) {

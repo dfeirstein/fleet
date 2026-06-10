@@ -55,7 +55,11 @@ export function classifyLive(input: {
   notif: CmuxNotification | undefined;
   lastDispatchAt: string;
   /** True when a gate-verified `fleet done` stamp belongs to the current turn
-   *  (see doneSignalFresh in quiescence.ts). */
+   *  (see doneSignalFresh in quiescence.ts). Intentionally NOT capability-gated
+   *  (unlike the cmux signal emission in done.ts): the stamp is registry-only —
+   *  zero cmux dependency — and safe on any build because it sits BELOW live
+   *  screen evidence in the precedence, so it can only settle an ambiguous
+   *  quiet screen, never contradict a visible one. */
   doneSignal?: boolean;
 }): AgentStatus {
   const { probe, hasBlock, notif, lastDispatchAt, doneSignal } = input;

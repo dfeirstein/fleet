@@ -6,7 +6,7 @@
 // (.claude-docs/<project>/waves/<id>/<label>.md) and returns only a compact,
 // structured digest. The Captain holds the file PATH as a just-in-time retrieval
 // handle (use `fleet recall` to pull detail back), never the raw transcript.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { readScreen } from "../cmux.js";
@@ -58,9 +58,13 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
   // Refresh every worker's capture file first (pipe-pane is a one-shot async
   // dump — see capture-log.ts), then give the dumps one shared beat to land.
   // Capability-gated + best-effort: with no pipe-pane this is a no-op and the
-  // screen scrape below carries the digest, exactly as before.
+  // screen scrape below carries the digest, exactly as before. The request
+  // time is the freshness bar: a capture older than it never claims recency.
+  const dumpRequestedAt = Date.now();
   const anyRefreshed = agents.map((a) => refreshCapture(a)).some(Boolean);
   if (anyRefreshed) execFileSync("sleep", ["1.2"]);
+  // 1s slack for filesystem timestamp granularity / clock skew.
+  const freshSinceMs = dumpRequestedAt - 1_000;
 
   for (const a of agents) {
     let raw = "";
@@ -70,20 +74,39 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       // worker pane gone / unreadable — digest with status only
     }
 
-    // Prefer the capture file (full scrollback up to ~2MB, refreshed at spawn /
-    // `fleet done` / just above — it holds the worker's TRUE final report even
-    // after the live screen scrolled past it) over the 200-line scrape. Fall
-    // back to the scrape when no capture exists. The LIVE screen still owns
-    // classification below (B4) — a stale capture must never decide stillWorking.
-    const captured = readCapture(a.agentId);
-    const report = captured ?? raw;
-    const source = captured ? "capture file (pipe-pane dump)" : "live-screen scrape";
+    // Prefer the capture file (full scrollback up to ~2MB — it holds the
+    // worker's TRUE final report even after the live screen scrolled past it)
+    // over the 200-line scrape, but only when the dump requested above actually
+    // LANDED (mtime ≥ request): the tail must not pass off an old dump as
+    // current. If the fresh dump didn't land, fall back to the live scrape;
+    // a stale capture is used only when the pane is unreadable too (it beats
+    // reporting nothing for a dead pane) and is labeled as stale. The LIVE
+    // screen still owns classification below (B4) — a capture never decides
+    // stillWorking.
+    const cap = readCapture(a.agentId);
+    const capFresh = cap !== undefined && cap.mtimeMs >= freshSinceMs;
+    const usedCapture = capFresh ? cap : !raw.trim() ? cap : undefined;
+    const report = usedCapture?.content ?? raw;
+    const source = capFresh
+      ? "capture file (pipe-pane dump)"
+      : usedCapture
+        ? "STALE capture file (pane unreadable; content from an earlier dump)"
+        : cap
+          ? "live-screen scrape (capture file stale — fresh dump did not land)"
+          : "live-screen scrape";
 
     let wavePath: string | undefined;
     if (report.trim()) {
-      const dir = join(projectDir(a), CLAUDE_DOCS_DIR, "waves", waveId);
+      const wavesRoot = join(projectDir(a), CLAUDE_DOCS_DIR, "waves");
+      const dir = join(wavesRoot, waveId);
       try {
         mkdirSync(dir, { recursive: true });
+        // Raw worker transcripts can contain secrets — make the waves dir
+        // self-ignoring (a `*` .gitignore inside it) so they never land in the
+        // project's git history. Idempotent; never touches the project's own
+        // .gitignore.
+        const ignorePath = join(wavesRoot, ".gitignore");
+        if (!existsSync(ignorePath)) writeFileSync(ignorePath, "*\n");
         wavePath = join(dir, `${a.label.replace(/[^a-zA-Z0-9._-]/g, "_")}.md`);
         const header = `# Wave ${waveId} — ${a.label}\n\n- agent: ${a.agentId}\n- status: ${a.status}\n- cwd: ${a.cwd}\n- objective: ${a.task}\n- source: ${source}\n\n---\n\n`;
         writeFileSync(wavePath, header + "```\n" + report.trimEnd() + "\n```\n");
@@ -162,7 +185,7 @@ export function digest(opts: { waveId?: string; agents?: Agent[] } = {}): { wave
       objective: (a.task || "").replace(/\s+/g, " ").slice(0, 140),
       project: projectDir(a),
       wavePath,
-      tail: captured ? captureTail(captured, 12) : lastLines(raw, 12),
+      tail: usedCapture ? captureTail(usedCapture.content, 12) : lastLines(raw, 12),
       proof,
       stillWorking: stillWorking || undefined,
     });

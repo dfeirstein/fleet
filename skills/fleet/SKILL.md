@@ -114,7 +114,13 @@ when the proof gate passes (judge ≠ generator, fails closed):
   the moment its screen settles — no more inferring from an ambiguous prompt)
   and emits the cmux signal `done-<agentId>`. A script can block on a specific
   worker's verified completion with `cmux wait-for done-<agentId> --timeout 300`
-  (the signal is sticky — it survives until one waiter consumes it). Workers
+  (the signal is sticky — it survives until one waiter consumes it). Sticky
+  cuts both ways: an unconsumed `done-<agentId>` from a PREVIOUS turn satisfies
+  a later `wait-for` instantly, so drain it (`cmux wait-for done-<agentId>
+  --timeout 1`) before re-dispatching the same worker — or scope this waiting
+  pattern to single-turn workers. Note the signal fires only on an explicit
+  `fleet done`: digest's passive proof gate records `complete` but never
+  signals, so an external waiter is woken by `fleet done` alone. Workers
   that never call `fleet done` still resolve via the screen/notification
   inference, as always.
 
