@@ -29,15 +29,24 @@ fleet spawn <task...>   Launch a worker on a task (new cmux workspace)
     --yolo                No safety checks (--dangerously-skip-permissions)
     --worktree            Isolate in a git worktree on a fleet/<label> branch
     --no-autostart        Launch Claude but don't send the task prompt yet
+    --with-browser [url]  Also open a companion browser pane in the workspace
 fleet grid <cols>x<rows> [task...]              Tile ONE workspace into a grid of
     --cwd <path> --label <prefix> [--gated|--yolo]  worker panes (shared FS).
                                                  With a task all panes run it;
                                                  else they idle for `fleet send`.
 fleet read <agent> [--lines N] [--scrollback]   Capture a worker's screen
+fleet read <agent> --browser-screenshot <out>   Screenshot a worker's --with-browser pane
 fleet send <agent> <text...>                    Steer a worker (types text + Enter)
 fleet status                                    Snapshot fleet table
 fleet verify <agent> [--check <cmd>]            Independent eval gate (judge ≠ generator);
                                                 a PASSING check auto-attaches as a proof
+fleet verify <agent> --visual <url>             Browser-backed eval gate: fails closed on
+    [--expect-text <t>] [--exact-url]           timeout / page errors / off-origin final
+    [--state <project>]                         URL / missing text; PASS attaches proof
+fleet browser-state save|load <project>         Save/load an authenticated browser session
+    [--import --from <browser> [--domain <d>]]  (mode-600 file in ~/.fleet, never in a repo)
+fleet review <agent>                            Open review panels: visual diff (branch vs
+                                                base) + the worker's latest wave report
 fleet done <agent> --proof <kind:ref> [--proof …]  Attach proof-of-work + run the gate
                                                 (test:<cmd> | file:<path>; note: is
                                                 metadata only — never satisfies the gate)

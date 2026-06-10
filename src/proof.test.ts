@@ -55,6 +55,31 @@ test("static file empty → proof-failed", () => {
   assert.match(r.detail, /empty/);
 });
 
+test("machine visual proof: artifact present → complete; ref stays the URL", () => {
+  const dir = mkdtempSync(join(tmpdir(), "proof-"));
+  const shot = join(dir, "shot.png");
+  writeFileSync(shot, "png-bytes");
+  const p: ProofArtifact = { ...artifact("visual", "http://localhost:3000/"), url: "http://localhost:3000/", artifact: shot };
+  const r = gateProof([p], { dir });
+  assert.equal(r.verdict, "complete");
+  assert.deepEqual(r.proofRefs, ["visual:http://localhost:3000/"]);
+});
+
+test("machine visual proof: artifact file gone → proof-failed (fail closed)", () => {
+  const p: ProofArtifact = { ...artifact("visual", "http://localhost:3000/"), url: "http://localhost:3000/", artifact: "/nonexistent/shot.png" };
+  const r = gateProof([p], { dir: "/x" });
+  assert.equal(r.verdict, "proof-failed");
+  assert.match(r.detail, /artifact missing/);
+});
+
+test("legacy hand-attached visual proof (no artifact field) → ref-is-a-file fallback", () => {
+  const dir = mkdtempSync(join(tmpdir(), "proof-"));
+  const shot = join(dir, "manual.png");
+  writeFileSync(shot, "png-bytes");
+  assert.equal(gateProof([artifact("visual", shot)], { dir }).verdict, "complete");
+  assert.equal(gateProof([artifact("visual", "/nonexistent/manual.png")], { dir }).verdict, "proof-failed");
+});
+
 test("note ALONE is never sufficient → done-without-proof (judge ≠ generator)", () => {
   // A worker's free text can't self-certify; a note-only set is treated exactly
   // like no proof at all (the flagged, NOT-complete state).

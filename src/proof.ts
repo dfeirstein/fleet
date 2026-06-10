@@ -25,6 +25,12 @@ export interface ProofArtifact {
   ref: string;
   summary?: string;
   attachedAt: string; // ISO
+  /** Machine-produced `visual` proofs (fleet verify --visual) record what was
+   *  checked and the captured evidence. When `artifact` is set, grading checks
+   *  THAT file (missing artifact = FAIL, fail closed); a hand-attached
+   *  `visual:<path>` (no artifact field) keeps the legacy ref-is-a-file check. */
+  url?: string;
+  artifact?: string;
 }
 
 export type ProofVerdict = "complete" | "done-without-proof" | "proof-failed";
@@ -124,6 +130,12 @@ export function gateProof(proofs: ProofArtifact[] | undefined, ctx: GateContext)
     if (RUNNABLE.has(p.kind)) {
       const { pass, output } = run(ctx.dir, p.ref);
       if (!pass) failures.push(`${p.kind}:${p.ref} → ${firstLine(output) || "failed"}`);
+    } else if (p.kind === "visual" && p.artifact) {
+      // Machine-produced visual proof: the ref is the verified URL; the graded
+      // evidence is the captured artifact. Re-grading after the artifact file
+      // vanished is a FAIL (fail closed), not a pass-through.
+      const r = checkStaticFile(p.artifact, ctx.dir);
+      if (!r.ok) failures.push(`${p.kind}:${p.ref} → artifact ${r.reason} (${p.artifact})`);
     } else {
       const r = checkStaticFile(p.ref, ctx.dir);
       if (!r.ok) failures.push(`${p.kind}:${p.ref} → ${r.reason}`);

@@ -193,6 +193,7 @@ export interface GridCell {
   surfaceRef: string;
   surfaceId: string;
   workspaceId: string;
+  type: SurfaceInfo["type"];
 }
 
 /** Split a pane/surface and return the NEW surface's ref. */
@@ -222,7 +223,7 @@ export function listGridCells(workspaceRef: string): GridCell[] {
       "--json",
     ]);
     const s = info.surfaces.find((x) => x.selected) ?? info.surfaces[0];
-    if (s) cells.push({ paneRef: p.ref, surfaceRef: s.ref, surfaceId: s.id, workspaceId: info.workspace_id });
+    if (s) cells.push({ paneRef: p.ref, surfaceRef: s.ref, surfaceId: s.id, workspaceId: info.workspace_id, type: s.type });
   }
   return cells;
 }
@@ -430,6 +431,153 @@ export function submitToClaude(target: Target, text: string): void {
 /** Close a workspace by handle. */
 export function closeWorkspace(workspace: string): void {
   cmux(["close-workspace", "--workspace", workspace]);
+}
+
+// ── Browser rail ─────────────────────────────────────────────────────────────
+// Typed wrappers over `cmux browser …` (WKWebView). Verified live 2026-06-09:
+//   - `browser open <url> --workspace <ws>` splits a browser pane into the
+//     workspace and prints `OK surface=surface:N pane=pane:N placement=split`.
+//   - `wait` exits non-zero on timeout ("Error: timeout: …") — callers treat
+//     that as FAIL (fail closed).
+//   - `errors list`/`console list` print "No browser errors"/"No console
+//     entries" when empty (no --json on these verbs in this build).
+//   - `state save <path>` dumps the SHARED profile's cookies + storage — live
+//     session credentials. Callers own tightening file modes (see
+//     commands/browser-state.ts); this layer just runs the verb.
+// Network mocking / viewport emulation / tracing are listed in help but return
+// not_supported on WKWebView — not wrapped, don't promise them.
+
+let cachedBrowserSupported: boolean | undefined;
+
+/** True iff this cmux advertises the browser rail (cached). Fail-safe: any
+ *  error resolving capabilities reads as "unsupported" so callers degrade with
+ *  a clear message instead of crashing mid-verify. */
+export function browserSupported(): boolean {
+  if (cachedBrowserSupported !== undefined) return cachedBrowserSupported;
+  try {
+    const caps = cmuxJson<{ methods?: string[] }>(["capabilities"]);
+    const m = new Set(caps.methods ?? []);
+    cachedBrowserSupported = m.has("browser.open_split") && m.has("browser.wait");
+  } catch {
+    cachedBrowserSupported = false;
+  }
+  return cachedBrowserSupported;
+}
+
+export interface BrowserSurface {
+  surfaceRef: string;
+  surfaceId: string; // UUID — stable across ref renumbering, used for all ops
+  paneRef: string;
+}
+
+/**
+ * Open a browser surface as a split pane in a workspace and resolve its stable
+ * UUID (the `OK surface=… pane=…` line only carries refs, which renumber).
+ */
+export function browserOpen(url: string, workspace: string): BrowserSurface {
+  const out = cmux(["browser", "open", url, "--workspace", workspace, "--focus", "false"]);
+  const surface = out.match(/surface=(surface:\d+)/)?.[1];
+  const pane = out.match(/pane=(pane:\d+)/)?.[1];
+  if (!surface || !pane) throw new Error(`could not parse browser surface from cmux output: ${JSON.stringify(out)}`);
+  const info = cmuxJson<PaneSurfacesResponse>([
+    "list-pane-surfaces", "--workspace", workspace, "--pane", pane, "--id-format", "both", "--json",
+  ]);
+  const s = info.surfaces.find((x) => x.type === "browser") ?? info.surfaces.find((x) => x.ref === surface);
+  if (!s) throw new Error(`browser surface ${surface} not found in ${workspace} pane ${pane}`);
+  return { surfaceRef: s.ref, surfaceId: s.id, paneRef: pane };
+}
+
+function browser(surface: string, args: string[]): string {
+  return cmux(["browser", "--surface", surface, ...args]);
+}
+
+/** Navigate an existing browser surface. */
+export function browserNavigate(surface: string, url: string): void {
+  browser(surface, ["goto", url]);
+}
+
+/** Wait for a load state; false on timeout/error (callers fail closed). */
+export function browserWaitLoaded(surface: string, timeoutMs: number): boolean {
+  try {
+    browser(surface, ["wait", "--load-state", "complete", "--timeout-ms", String(timeoutMs)]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function browserGetUrl(surface: string): string {
+  return browser(surface, ["get", "url"]);
+}
+
+/** Full visible page text (body). Some pages break rich snapshots; plain text
+ *  is the robust fallback per the WKWebView footguns. */
+export function browserGetText(surface: string): string {
+  return browser(surface, ["get", "text", "--selector", "body"]);
+}
+
+/** Page JS errors. Empty list ⇒ this build prints "No browser errors". */
+export function browserErrors(surface: string): string[] {
+  const out = browser(surface, ["errors", "list"]);
+  if (!out || /^no browser errors/i.test(out)) return [];
+  return out.split("\n").filter((l) => l.trim());
+}
+
+/** Console entries. Empty list ⇒ this build prints "No console entries". */
+export function browserConsole(surface: string): string[] {
+  const out = browser(surface, ["console", "list"]);
+  if (!out || /^no console entries/i.test(out)) return [];
+  return out.split("\n").filter((l) => l.trim());
+}
+
+/** Reset console + error buffers so a verify only judges ITS navigation. */
+export function browserClearLogs(surface: string): void {
+  try {
+    browser(surface, ["console", "clear"]);
+    browser(surface, ["errors", "clear"]);
+  } catch {
+    // best-effort — a fresh surface starts clean anyway
+  }
+}
+
+export function browserScreenshot(surface: string, outPath: string): void {
+  browser(surface, ["screenshot", "--out", outPath]);
+}
+
+/** Dump the shared profile's cookies/storage/tabs to `path`. SENSITIVE: the
+ *  file holds live session cookies — the caller must chmod it (see
+ *  commands/browser-state.ts, which owns the 600/700 policy). */
+export function browserStateSave(surface: string, path: string): void {
+  browser(surface, ["state", "save", path]);
+}
+
+export function browserStateLoad(surface: string, path: string): void {
+  browser(surface, ["state", "load", path]);
+}
+
+/** Seed the cmux browser profile with cookies imported from a desktop browser
+ *  (e.g. chrome/safari), optionally scoped to one domain. Non-interactive. */
+export function browserImport(opts: { from: string; domain?: string }): string {
+  const args = ["browser", "import", "--non-interactive", "--from", opts.from];
+  if (opts.domain) args.push("--domain", opts.domain);
+  return cmux(args);
+}
+
+/** Open cmux's visual diff panel for a repo/worktree branch vs a base ref.
+ *  No capability entry exists for `diff` (CLI-side verb) — callers catch
+ *  CmuxError and degrade with a clear message. */
+export function openDiffPanel(opts: { cwd: string; base: string; title?: string; workspace?: string }): void {
+  const args = ["diff", "--branch", "--cwd", opts.cwd, "--base", opts.base, "--no-focus"];
+  if (opts.title) args.push("--title", opts.title);
+  if (opts.workspace) args.push("--workspace", opts.workspace);
+  cmux(args);
+}
+
+/** Open a markdown file in cmux's formatted viewer panel. */
+export function openMarkdownPanel(path: string, opts: { workspace?: string } = {}): void {
+  const args = ["markdown", "open", path, "--focus", "false"];
+  if (opts.workspace) args.push("--workspace", opts.workspace);
+  cmux(args);
 }
 
 /**
