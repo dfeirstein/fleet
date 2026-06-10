@@ -1,10 +1,11 @@
 // `fleet status` — the Fleet Dashboard. Merges the registry with a live cmux
 // read so the orchestrator sees real state, not just what it last recorded.
 import { listAgents, patch, handle, target, type Agent, type AgentStatus } from "../registry.js";
-import { workspaceExists } from "../cmux.js";
+import { workspaceExists, sidebarSnapshot, type WorkspaceSidebarInfo } from "../cmux.js";
 import { probeStatus } from "../status.js";
 import { listNotifications, indexNotifications, notificationFor, turnEnded, type CmuxNotification } from "../notifications.js";
 import { pendingBlocks, type PendingBlock } from "../events.js";
+import { realCwd } from "./prompts.js";
 import { doneSignalFresh } from "../quiescence.js";
 
 const ICON: Record<string, string> = {
@@ -30,9 +31,39 @@ export interface FleetRow {
   /** Cheap proof flag for the done-without-proof diagnostic (no gate execution):
    *  "none" = idle with nothing attached; "claimed" = idle with proof(s). */
   proof?: "none" | "claimed";
+  /** The pending Feed prompt kind behind a blocked-on-you row (question/
+   *  permission/plan) — answerable via `fleet reply` while in the 120s window. */
+  blockedKind?: string;
   /** When the worker was last given work — the stable-idle dwell (watch/daemon)
    *  refuses to declare quiescence while any dispatch is this fresh. */
   lastDispatchAt: string;
+  /** Snapshot enrichment (cheap wins from the one-RPC sidebar snapshot):
+   *  dev-server ports + PR URLs for the worker's workspace, where present. */
+  ports?: string[];
+  prUrls?: string[];
+}
+
+/** What the one-RPC sidebar snapshot pre-fetched for one worker. The snapshot
+ *  is an OPTIMIZATION of how data is fetched, never a classification input:
+ *  `exists` is `true` only when the snapshot positively lists the workspace —
+ *  `undefined` (snapshot unavailable, worker has no UUID, or workspace simply
+ *  absent: the RPC may be scoped to one window) means the caller must run the
+ *  live existence check exactly as before. Never `false`. */
+export interface SnapshotPrefetch {
+  exists: true | undefined;
+  ports: string[];
+  prUrls: string[];
+}
+
+/** Pure snapshot→row mapping decision (the unit-tested core of the
+ *  snapshot-first path). */
+export function prefetchFromSnapshot(
+  workspaceId: string | undefined,
+  sidebar: Map<string, WorkspaceSidebarInfo> | undefined,
+): SnapshotPrefetch {
+  const ws = workspaceId ? sidebar?.get(workspaceId) : undefined;
+  if (!ws) return { exists: undefined, ports: [], prUrls: [] };
+  return { exists: true, ports: ws.listeningPorts, prUrls: ws.pullRequestUrls };
 }
 
 /**
@@ -84,9 +115,22 @@ export function snapshot(): FleetRow[] {
   // map). Empty/unsupported cmux → [] → the screen heuristic's awaiting-input
   // remains the fallback for the same lane (decision #2).
   const blocks = pendingBlocks();
+  // Snapshot-first: ONE sidebar.snapshot call pre-fetches per-workspace data
+  // (existence + ports/PR enrichment) for the whole fleet. Strictly a fetch
+  // optimization — the classifier's inputs are unchanged: the snapshot has no
+  // screen-equivalent data, so every live worker keeps its screen read, and a
+  // workspace ABSENT from the snapshot falls back to the live existence check
+  // (absence is never treated as death). Unsupported cmux → undefined → the
+  // per-agent path below runs byte-identically to before.
+  const sidebar = sidebarSnapshot();
+  let existenceReads = 0;
+  let screenReads = 0;
   for (const a of listAgents()) {
+    const pre = prefetchFromSnapshot(a.workspaceId, sidebar);
     let status: string = a.status;
-    if (!workspaceExists(handle(a))) {
+    const block = agentBlock(a, blocks);
+    const exists = pre.exists ?? (existenceReads++, workspaceExists(handle(a)));
+    if (!exists) {
       status = "dead";
     } else if (a.status === "undispatched") {
       // spawn never delivered the brief — the pane sits at an empty prompt the
@@ -94,9 +138,10 @@ export function snapshot(): FleetRow[] {
       // patches status back to running).
       status = "undispatched";
     } else {
+      screenReads++;
       status = classifyLive({
         probe: probeStatus(target(a)).status,
-        hasBlock: agentHasBlock(a, blocks),
+        hasBlock: !!block,
         notif: notificationFor(notifs, a.surfaceId, a.workspaceId ?? a.workspace),
         lastDispatchAt: a.lastDispatchAt,
         doneSignal: doneSignalFresh(a.doneSignalAt, a.lastDispatchAt),
@@ -116,16 +161,31 @@ export function snapshot(): FleetRow[] {
       status,
       task: a.task,
       proof,
+      blockedKind: status === "blocked-on-you" ? block?.kind : undefined,
       lastDispatchAt: a.lastDispatchAt,
+      ports: pre.ports.length ? pre.ports : undefined,
+      prUrls: pre.prUrls.length ? pre.prUrls : undefined,
     });
+  }
+  if (process.env.FLEET_DEBUG) {
+    // Reads-per-beat telemetry (stderr — stdout stays parseable): before the
+    // snapshot path this was existence=N screen=N; with it, existence drops to
+    // the snapshot misses. Compare via FLEET_NO_SNAPSHOT=1.
+    console.error(
+      `[status] reads-per-beat: agents=${rows.length} snapshot=${sidebar ? 1 : 0} existence=${existenceReads} screen=${screenReads}`,
+    );
   }
   return rows;
 }
 
 /** A pending feed block belongs to a worker if its cwd matches the worker's
- *  cwd or its worktree path (feed items carry the claude session's cwd). */
-function agentHasBlock(a: Agent, blocks: PendingBlock[]): boolean {
-  return blocks.some((b) => !!b.cwd && (b.cwd === a.cwd || b.cwd === a.worktree?.path));
+ *  cwd or its worktree path (feed items carry the claude session's RESOLVED
+ *  cwd, so compare symlink-proof — /tmp vs /private/tmp). */
+function agentBlock(a: Agent, blocks: PendingBlock[]): PendingBlock | undefined {
+  return blocks.find((b) => {
+    const cwd = realCwd(b.cwd);
+    return !!cwd && (cwd === realCwd(a.cwd) || cwd === realCwd(a.worktree?.path));
+  });
 }
 
 export function renderTable(rows: FleetRow[]): string {
@@ -140,11 +200,20 @@ export function renderTable(rows: FleetRow[]): string {
     const flag =
       r.status === "undispatched"
         ? "⚠ brief NOT dispatched — fleet send it "
-        : r.proof === "none"
-          ? "⚠ done (no proof) "
-          : "";
+        : r.blockedKind
+          ? `◍ ${r.blockedKind} pending — fleet reply `
+          : r.proof === "none"
+            ? "⚠ done (no proof) "
+            : "";
     const task = r.task.length > 50 ? r.task.slice(0, 47) + "..." : r.task;
-    return `${icon} ${id} ${label} ${ws} ${model} ${st} ${flag}${task}`;
+    // Snapshot enrichment: dev-server ports + PR URLs, where the one-RPC
+    // sidebar snapshot had them (absent on older cmux — column just omitted).
+    const extras = [
+      r.ports?.length ? `⇡${r.ports.join(",")}` : "",
+      ...(r.prUrls ?? []),
+    ].filter(Boolean);
+    const extra = extras.length ? `  ${extras.join(" · ")}` : "";
+    return `${icon} ${id} ${label} ${ws} ${model} ${st} ${flag}${task}${extra}`;
   });
   const active = rows.filter((r) => r.status === "running").length;
   const header = `  ${"id".padEnd(8)} ${"label".padEnd(16)} ${"workspace".padEnd(12)} ${"model".padEnd(7)} ${"status".padEnd(14)} task`;

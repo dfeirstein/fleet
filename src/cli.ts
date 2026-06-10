@@ -32,6 +32,8 @@ import { objective } from "./commands/objective.js";
 import { daemonStart, daemonStop, daemonStatus, daemonRun } from "./commands/daemon.js";
 import { logMilestone } from "./commands/log.js";
 import { notifyOrchestrator } from "./commands/notify.js";
+import { prompts } from "./commands/prompts.js";
+import { reply } from "./commands/reply.js";
 import { clearDashboard } from "./dashboard.js";
 import { CmuxError } from "./cmux.js";
 
@@ -119,7 +121,10 @@ Commands:
   read <agent> [--lines N] [--scrollback]   Capture a worker's screen
        [--browser-screenshot <out.png>]     (or screenshot its --with-browser pane)
   send <agent> <text...> [--no-enter]       Steer a worker (types text + Enter)
-  status                                     Snapshot fleet table
+  status                                     Snapshot fleet table (one sidebar-
+                                             snapshot RPC pre-fetches the fleet
+                                             where supported; rows show dev-server
+                                             ports + PR URLs when known)
   verify <agent> [--check <cmd>]             Independent eval gate (judge≠generator;
                                              a PASSING check auto-attaches as proof)
   verify <agent> --visual <url>              Browser-backed gate: load the page in a
@@ -196,9 +201,23 @@ Commands:
                                              --model pins the Captain's model,
                                              e.g. claude-fable-5)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
-                                             stuck/zombie detection, escalations
+                                             stuck/zombie detection, resource
+                                             guardrails (sustained-CPU/RSS/health
+                                             nudges — never auto-kill; thresholds
+                                             in ~/.fleet/daemon/shared-config.json),
+                                             escalations
   notify-orchestrator <msg> [--urgent]       Push a message to the orchestrator
                                              (bridge for /schedule routines)
+  prompts [agent]                            List pending Feed prompts (permission/
+                                             question/plan) with text, options, and
+                                             the 120s RPC reply window
+  reply <agent> <answer> [--prompt <id>]     Answer a worker's pending prompt via
+                                             the Feed RPC (no TUI keystrokes):
+                                             permission → allow|deny|always|all|bypass;
+                                             question → option # or label (other text
+                                             is sent verbatim as the one selection);
+                                             plan → approve|reject|auto|ultraplan.
+                                             After the 120s window use \`fleet send\`
 
 Agents are matched by id, id-prefix, or label.`;
 
@@ -594,6 +613,18 @@ async function main(): Promise<void> {
       if (reviewBranches.length) {
         console.log(`branches left for review/merge: ${reviewBranches.join(", ")}`);
       }
+      break;
+    }
+    case "prompts": {
+      console.log(prompts(positionals[0]));
+      break;
+    }
+    case "reply": {
+      const agent = positionals[0];
+      if (!agent) return fail("reply requires an <agent> and <answer>");
+      const answer = positionals.slice(1).join(" ");
+      if (!answer) return fail("reply requires an <answer> (see `fleet prompts`)");
+      console.log(reply(agent, answer, str(flags.prompt)));
       break;
     }
     case "help":

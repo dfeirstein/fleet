@@ -167,3 +167,9 @@ test("reactor: notification 'Completed' enrich → idle transition", () => {
   reactor.handleFrame({ type: "event", category: "notification", name: "notification.created", workspace_id: "W9" });
   assert.equal(reactor.getState("W9")?.status, "idle");
 });
+
+test("frameToSignal: feed pending permissionRequest (live 0.64.12 kind) → blocked-on-you permission", () => {
+  const sig = frameToSignal({ type: "feed", item: { kind: "permissionRequest", status: "pending" } });
+  assert.equal(sig.status, "blocked-on-you");
+  assert.equal(sig.blocked?.kind, "permission");
+});
