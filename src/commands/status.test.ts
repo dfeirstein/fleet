@@ -102,6 +102,24 @@ test("prefetchFromSnapshot: a worker with no workspace UUID keeps the legacy pat
   assert.equal(prefetchFromSnapshot(undefined, SIDEBAR).exists, undefined);
 });
 
+test("classifyLive: durable lifecycle is the weakest input — settles ONLY an unknown probe", () => {
+  // probe running wins (the precedence rule from the detection fixes stands)
+  assert.equal(classifyLive({ probe: "running", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, durable: "idle" }), "running");
+  // an unknown probe with no other evidence takes the durable hint
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, durable: "running" }), "running");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, durable: "awaiting-input" }), "awaiting-input");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, durable: "idle" }), "idle");
+  // every stronger lane still beats it
+  assert.equal(classifyLive({ probe: "error", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, durable: "running" }), "error");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: true, notif: undefined, lastDispatchAt: DISPATCH, durable: "idle" }), "blocked-on-you");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, doneSignal: true, durable: "running" }), "idle");
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: freshTurnEnd, lastDispatchAt: DISPATCH, durable: "running" }), "idle");
+  // a definite idle probe is NOT upgraded by a durable hint (only unknown is)
+  assert.equal(classifyLive({ probe: "idle", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH, durable: "running" }), "idle");
+  // and with no durable data everything behaves exactly as before
+  assert.equal(classifyLive({ probe: "unknown", hasBlock: false, notif: undefined, lastDispatchAt: DISPATCH }), "unknown");
+});
+
 test("sibling notification misattribution no longer flips a running worker (B1, end-to-end)", () => {
   // Workers A (running) and B share workspace W; B emits "Completed".
   const idx = indexNotifications([

@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { cmuxJson } from "./cmux.js";
 import { listNotifications, latestByWorkspace, TURN_END, type CmuxNotification } from "./notifications.js";
+import { readHookSessions, workstreamKeys, type DurableSessionMap } from "./cmux-sessions.js";
 import type { AgentStatus } from "./registry.js";
 
 export type { CmuxNotification } from "./notifications.js";
@@ -293,6 +294,40 @@ export class FleetEventReactor {
   /** The workspace a claude session maps to (learned from agent.hook frames). */
   sessionWorkspace(sessionId: string): string | undefined {
     return this.sessionToWorkspace.get(sessionId);
+  }
+
+  /**
+   * Warm the cold session↔workspace map from cmux's durable hook-sessions file
+   * so feed items can be attributed BEFORE the first live agent.hook frame (the
+   * cold-map gap: an item that arrives first was unattributable until now).
+   * Seeds only the session→workspace MAP — turn-end attribution stays
+   * surface-keyed (see enrichNotifications); this never re-introduces
+   * workspace-keyed attribution. Seeds never clobber live-learned entries, and
+   * a later agent.hook frame overwrites a stale seed (learnSession sets
+   * unconditionally). Best-effort: missing/corrupt file → 0 seeded, behavior
+   * exactly as before. Returns the number of sessions seeded.
+   */
+  warmSessionMap(read: () => DurableSessionMap | undefined = readHookSessions): number {
+    let durable: DurableSessionMap | undefined;
+    try {
+      durable = read();
+    } catch {
+      return 0;
+    }
+    if (!durable) return 0;
+    let seeded = 0;
+    for (const s of durable.sessions) {
+      if (!s.workspaceId) continue;
+      let any = false;
+      for (const key of workstreamKeys(s.sessionId)) {
+        if (!this.sessionToWorkspace.has(key)) {
+          this.sessionToWorkspace.set(key, s.workspaceId);
+          any = true;
+        }
+      }
+      if (any) seeded++;
+    }
+    return seeded;
   }
 
   /** Drop a worker's tracked state (e.g. when it dies / is killed). */

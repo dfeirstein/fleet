@@ -173,3 +173,40 @@ test("frameToSignal: feed pending permissionRequest (live 0.64.12 kind) → bloc
   assert.equal(sig.status, "blocked-on-you");
   assert.equal(sig.blocked?.kind, "permission");
 });
+
+// The durable file keys sessions by bare uuid; the stream keys them claude-<uuid>.
+const durableMap = {
+  sessions: [{ sessionId: "xyz", workspaceId: "W-WARM" }],
+  activeSessionByWorkspace: new Map<string, string>(),
+};
+
+test("reactor: warmSessionMap closes the cold-map gap — feed item attributes with NO prior agent.hook", () => {
+  const feed: FeedItem[] = [{ kind: "question", status: "pending", workstream_id: "claude-xyz", question_prompt: "Proceed?" }];
+  const reactor = new FleetEventReactor({ deps: { listNotifications: () => [], listFeedItems: () => feed } });
+  assert.equal(reactor.warmSessionMap(() => durableMap), 1);
+  assert.equal(reactor.sessionWorkspace("claude-xyz"), "W-WARM"); // prefixed stream key seeded
+  // A redacted feed frame arrives FIRST (the gap this fixes) → attributed via the seed.
+  reactor.handleFrame({ type: "event", category: "feed", name: "feed.item.received", workspace_id: null });
+  assert.equal(reactor.getState("W-WARM")?.status, "blocked-on-you");
+});
+
+test("reactor: a live agent.hook frame overrides a stale durable seed", () => {
+  const reactor = new FleetEventReactor({ deps: { listNotifications: () => [], listFeedItems: () => [] } });
+  reactor.warmSessionMap(() => durableMap);
+  reactor.handleFrame({ type: "event", category: "agent", name: "agent.hook.PreToolUse", workspace_id: "W-LIVE", payload: { session_id: "claude-xyz" } });
+  assert.equal(reactor.sessionWorkspace("claude-xyz"), "W-LIVE");
+  // ...and re-warming after live learning must NOT clobber it back.
+  assert.equal(reactor.warmSessionMap(() => durableMap), 0); // every key already known
+  assert.equal(reactor.sessionWorkspace("claude-xyz"), "W-LIVE");
+});
+
+test("reactor: warmSessionMap tolerates a missing/corrupt durable file (no file → as today)", () => {
+  const reactor = new FleetEventReactor({ deps: { listNotifications: () => [], listFeedItems: () => [] } });
+  assert.equal(reactor.warmSessionMap(() => undefined), 0);
+  assert.equal(
+    reactor.warmSessionMap(() => {
+      throw new Error("corrupt");
+    }),
+    0,
+  );
+});
