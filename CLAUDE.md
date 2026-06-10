@@ -7,7 +7,7 @@ the user's Max plan.
 
 ## What This Is
 - Language: TypeScript (pure ESM, `"type": "module"`), run via `tsx` — **no build step**
-- Runtime: Node 20+ (Node 22 LTS "Jod" local). **Zero runtime deps** (only devDeps: `tsx` pinned `^4.19.2`, `typescript` pinned `^5.7.2`)
+- Runtime: Node 20+ (Node 22 LTS "Jod" local). **Zero runtime deps** (only devDeps: `tsx` pinned `^4.19.2`, `typescript` pinned `^5.7.2`, `@types/node` `^25.9.2`)
 - Entry: `bin/fleet` → `tsx src/cli.ts`; one command per file in `src/commands/`
 - Stack resolved 2026-06-08 (latest npm: tsx 4.22.4, typescript 6.0.3 — pins lag intentionally). Refresh with `fleet currency`; full table in `.claude-docs/versions.md`.
 - Structure:

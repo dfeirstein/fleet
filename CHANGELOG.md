@@ -5,20 +5,19 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 ## Unreleased
 
 ### Fixed
-- **Silent existence probes** (no more leaked `not_found` from `fleet daemon status`/`stop`): `cmux()`/`cmuxJson()` take an opt-in `quietStderr` that pipes the child's stderr (capturing it into the thrown `CmuxError`) instead of inheriting the terminal; `workspaceExists`/`surfaceExists` (via `listSurfaces`/`listGridCells`) set it, since a gone workspace/surface is an expected answer they swallow. Real cmux errors everywhere else keep stderr inherited and visible. (#PR)
-
-### Added
-- **Outcomes gain view + per-failure investigate nudge** (CL-Bench rec #5 + the "investigate is not per-failure" gap): new pure module `src/outcomes-gain.ts` (`node:test` coverage) aggregates the cross-session outcome log per project into time-bucketed (UTC-day) failure rates, a repeat-failure signal (exact normalized-text match on `label │ check`, stated as non-semantic), and a fail-closed trend verdict (`<2` graded buckets → `insufficient-data`); corrupt log lines are counted (`malformed`), never silently dropped. Wired as `fleet outcomes --gain [--cwd P] [--json]` (default `fleet outcomes` unchanged). The daemon's failure (error) escalation now tells the Captain to investigate and log the root cause before re-dispatching, not just retry. (#27)
+- **`npm run typecheck` reproducible from a clean install**: `@types/node` is now a declared devDep (`^25.9.2`) — tsconfig's `"types": ["node"]` previously resolved only where the package happened to be installed ad-hoc, so a fresh `npm ci` failed typecheck with TS2688. (#29)
 
 ## 2026-06-10
 
 ### Added
+- **Outcomes gain view + per-failure investigate nudge** (CL-Bench rec #5 + the "investigate is not per-failure" gap): new pure module `src/outcomes-gain.ts` (`node:test` coverage) aggregates the cross-session outcome log per project into time-bucketed (UTC-day) failure rates, a repeat-failure signal (exact normalized-text match on `label │ check`, stated as non-semantic), and a fail-closed trend verdict (`<2` graded buckets → `insufficient-data`); corrupt log lines are counted (`malformed`), never silently dropped. Wired as `fleet outcomes --gain [--cwd P] [--json]` (default `fleet outcomes` unchanged). The daemon's failure (error) escalation now tells the Captain to investigate and log the root cause before re-dispatching, not just retry. (#27)
 - **Memory verification coverage** (audit-docs + distill prompts): new pure classifier `src/verification-coverage.ts` (tunable `UNVERIFIED_MARKERS`, `node:test` coverage) scores what fraction of CLAUDE.md gotchas + `.claude-docs` body claims are checked facts vs. uncertainty-flagged guesses; `fleet audit-docs` reports `verification coverage: N/M (P%)` and lists unverified `file:line` refs as warnings that lower memory quality but never hard-fail by themselves (an unreadable memory file still fails closed). Scribe brief + daemon distill nudge now require each gotcha to state how it was verified (or be marked `unverified:` and queued) and reference the fail → investigate → verify → distill → consult progression. Bootstrap-spawned scribes now default to Fable 5 (the verify/distill stages where CL-Bench shows Opus-tier underperforms; rec #3) — ordinary-worker default and `--model` override unchanged. (#26)
 
 ### Docs
 - **README refresh + real screenshots**: Commands table and `src/` map brought current with the actual surface (adds `done`/`review`/`prompts`/`reply`/`digest` rows, `events.ts`/`proof.ts`/`project-memory.ts`, and the proof-of-work gate + project-memory subsystem notes); embeds live hero/`fleet status`/`fleet doctor` screenshots in `docs/screenshots/`. (#25)
 
 ### Fixed
+- **Silent existence probes** (no more leaked `not_found` from `fleet daemon status`/`stop`): `cmux()`/`cmuxJson()` take an opt-in `quietStderr` that pipes the child's stderr (capturing it into the thrown `CmuxError`) instead of inheriting the terminal; `workspaceExists`/`surfaceExists` (via `listSurfaces`/`listGridCells`) set it, since a gone workspace/surface is an expected answer they swallow. Real cmux errors everywhere else keep stderr inherited and visible. (#28)
 - **`fleet resume` keep+resume alias** (#24, closes issue #23): alive agents' sessions (resolved via the durable map) now count as claims in `planReconcile`, so a dead agent whose cwd-lane probe matches a sibling's LIVE session demotes to skip-with-warning instead of `--apply` respawning an already-running session (fail closed; unresolvable kept agents contribute no claim; contradicted workspace/surface attributions claim nothing — a mis-attributed record can't falsely demote a genuine resume).
 
 ## 2026-06-09
