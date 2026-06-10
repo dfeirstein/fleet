@@ -5,6 +5,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 ## Unreleased
 
 ### Fixed
+- **`npm run typecheck` reproducible from a clean install**: `@types/node` is now a declared devDep (`^25.9.2`) — tsconfig's `"types": ["node"]` previously resolved only where the package happened to be installed ad-hoc, so a fresh `npm ci` failed typecheck with TS2688. (#PR)
 - **Silent existence probes** (no more leaked `not_found` from `fleet daemon status`/`stop`): `cmux()`/`cmuxJson()` take an opt-in `quietStderr` that pipes the child's stderr (capturing it into the thrown `CmuxError`) instead of inheriting the terminal; `workspaceExists`/`surfaceExists` (via `listSurfaces`/`listGridCells`) set it, since a gone workspace/surface is an expected answer they swallow. Real cmux errors everywhere else keep stderr inherited and visible. (#PR)
 
 ### Added
