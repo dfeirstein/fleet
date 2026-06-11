@@ -12,6 +12,7 @@ import {
   workspaceExists,
   waitForTerminal,
   readScreen,
+  waitForReady,
   submit,
   sendKey,
   submitToClaude,
@@ -124,21 +125,11 @@ function newAgentId(): string {
  * Without this, a --yolo worker stalls instead of starting. Poll briefly and
  * select "Yes, I accept" (option 2) if the dialog appears.
  */
-/** Wait until the Claude Code TUI is up and idle at its prompt. */
+/** Wait until the Claude Code TUI is up and idle at its prompt. Delegates to the
+ *  shared readiness gate (cmux.waitForReady → events.classifyScreenReadiness) so
+ *  spawn and send key off ONE heuristic, never parallel ones (issue #38). */
 export function waitForClaudeReady(target: Target, timeoutMs = 30000): boolean {
-  const ready = /auto mode on|bypass permissions on|accept edits on|\? for shortcuts|esc to interrupt/i;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    let screen = "";
-    try {
-      screen = readScreen(target, 30);
-    } catch {
-      /* not ready */
-    }
-    if (ready.test(screen)) return true;
-    execFileSync("sleep", ["0.4"]);
-  }
-  return false;
+  return waitForReady(target, timeoutMs) === "ready";
 }
 
 export function acceptBypassDialog(target: Target): boolean {
@@ -412,6 +403,16 @@ export function spawn(opts: SpawnOptions): Agent {
           `⚠ ${label} (${agentId}): the task brief never left the worker's input box — NOT submitted.\n` +
             `  Inspect with: fleet read ${agentId} — the brief may still be sitting in the box\n` +
             `  (submit it from the pane), or clear it and re-dispatch with: fleet send ${agentId} "<task>"`,
+        );
+      } else if (submit === "not-ready") {
+        // TUI regressed off its prompt between the ready check and the submit —
+        // brief NOT typed (issue #38). Record undispatched so the Captain knows.
+        dispatched = false;
+        agent.status = "undispatched";
+        patch(agentId, { status: "undispatched" });
+        console.error(
+          `⚠ ${label} (${agentId}): Claude TUI was not ready at dispatch — the task brief was NOT submitted.\n` +
+            `  Re-dispatch with: fleet send ${agentId} "<task>"`,
         );
       } else if (submit === "unverified") {
         console.error(
