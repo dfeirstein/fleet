@@ -478,26 +478,47 @@ export function inputBoxRegion(screen: string): string {
  * in the input region. (Checking the input cleared is the only reliable signal;
  * the "paste again to expand" collapse indicator only covers one failure mode.)
  */
-export function submitToClaude(target: Target, text: string): void {
+/** Outcome of a TUI submit. "failed" is a POSITIVE observation — the text is
+ *  still sitting in the input box after every nudge — so callers may treat the
+ *  dispatch as not delivered. "unverified" means the screen could never be
+ *  read; the submit most likely landed, so callers should warn, not revert. */
+export type SubmitResult = "submitted" | "failed" | "unverified";
+
+export function submitToClaude(target: Target, text: string): SubmitResult {
   sendText(target, text);
   sleepMs(450); // let the bracketed paste settle before Enter
   sendKey(target, "Enter");
 
   // A distinctive, whitespace-normalized chunk of the message. If it's still in
-  // the input box, the prompt wasn't submitted yet.
+  // the input box, the prompt wasn't submitted yet. Text too short to probe is
+  // also too short to paste-collapse — one Enter suffices.
   const probe = text.replace(/\s+/g, " ").trim().slice(0, 28);
+  if (probe.length < 4) return "submitted";
+
+  // true = probe still in the box, false = gone, undefined = screen unreadable.
+  const stillInBox = (): boolean | undefined => {
+    try {
+      return inputBoxRegion(readScreen(target, 20)).replace(/\s+/g, " ").includes(probe);
+    } catch {
+      return undefined;
+    }
+  };
+
+  let sawScreen = false;
   for (let i = 0; i < 6; i++) {
     sleepMs(450);
-    let screen = "";
-    try {
-      screen = readScreen(target, 20);
-    } catch {
-      return;
-    }
-    const box = inputBoxRegion(screen).replace(/\s+/g, " ");
-    if (probe.length < 4 || !box.includes(probe)) return; // left the input → submitted
+    const inBox = stillInBox();
+    if (inBox === undefined) continue; // transient read failure — keep verifying
+    sawScreen = true;
+    if (!inBox) return "submitted"; // left the input → submitted
     sendKey(target, "Enter"); // still in the input box → nudge again
   }
+  // The last nudge may itself have landed — settle and look once more, so a
+  // slow submit isn't misreported as a failed dispatch.
+  sleepMs(450);
+  const finalInBox = stillInBox();
+  if (finalInBox === false) return "submitted";
+  return finalInBox === true || sawScreen ? "failed" : "unverified";
 }
 
 /** Close a workspace by handle. */

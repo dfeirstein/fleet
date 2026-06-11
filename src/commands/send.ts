@@ -19,7 +19,19 @@ export function send(idOrLabel: string, text: string, withEnter = true): void {
   patch(agent.agentId, { lastDispatchAt: new Date().toISOString(), status: "running" });
   try {
     // Reliable submit into the worker's Claude TUI (handles paste-collapse).
-    submitToClaude(t, text);
+    const result = submitToClaude(t, text);
+    if (result === "failed") {
+      // Positive observation: the text never left the input box (issue #30).
+      throw new Error(
+        `the steer never left ${agent.label}'s input box — inspect with \`fleet read ${agent.agentId}\` and retry`,
+      );
+    }
+    if (result === "unverified") {
+      console.error(
+        `⚠ could not verify the steer to ${agent.label} was submitted (screen unreadable) — ` +
+          `check with: fleet read ${agent.agentId}`,
+      );
+    }
   } catch (e) {
     patch(agent.agentId, { lastDispatchAt: prevDispatchAt, status: prevStatus });
     throw e;

@@ -5,6 +5,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 ## Unreleased
 
 ### Fixed
+- **Spawn/send no longer fail open after the TUI is ready** (the live "autostart silently dropped" failure, issue #30): `submitToClaude` now reports whether the text verifiably left the input box (`submitted | failed | unverified` — read errors retry instead of silently passing, and a final post-nudge read prevents false negatives). `fleet spawn` marks a verified-failed brief `undispatched` (loud, sticky) instead of `running`; `fleet send` reverts its dispatch stamp and throws. SKILL.md + orchestrator-doctrine also gain `fleet reply` permission guardrails (deny freely; approve only what the user already authorized; never `always`/`bypass` without an explicit grant).
 - **`npm run typecheck` reproducible from a clean install**: `@types/node` is now a declared devDep (`^25.9.2`) — tsconfig's `"types": ["node"]` previously resolved only where the package happened to be installed ad-hoc, so a fresh `npm ci` failed typecheck with TS2688. (#29)
 
 ## 2026-06-10

@@ -216,6 +216,14 @@ makes every worker good *by default*. Three moves, backed by the
 You can also state boundaries in the worker's prompt ("do not deploy", "don't
 push") — auto mode's classifier enforces them.
 
+**Answering a worker's PERMISSION prompt (`fleet reply`, or typing into its
+pane) is a human-authority action.** Deny freely; reply `allow` only when the
+user's request or the brief you wrote already authorizes that exact action.
+NEVER reply `always`, `all`, or `bypass` unless the user explicitly granted a
+standing approval — those outlive the prompt. When in doubt, surface the
+prompt to the user and wait (past the 120s window it falls back to the
+worker's TUI, which is fine).
+
 ## Two layouts: separate workspaces vs a grid
 
 - **`fleet spawn`** puts each worker in its OWN workspace (its own sidebar entry,
