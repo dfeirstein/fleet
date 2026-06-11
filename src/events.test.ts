@@ -5,11 +5,43 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   frameToSignal,
+  classifyScreenReadiness,
   pendingBlocks,
   FleetEventReactor,
   type FeedItem,
   type CmuxNotification,
 } from "./events.js";
+
+// ── TUI readiness classifier (the spawn/send pre-type gate, issue #38) ────────
+
+test("classifyScreenReadiness: a live prompt (ready marker present) → ready", () => {
+  const screen = [
+    "✶ Welcome back",
+    "╭──────────────────────────────────╮",
+    "│ >                                │",
+    "╰──────────────────────────────────╯",
+    "  ? for shortcuts                    auto mode on",
+  ].join("\n");
+  assert.equal(classifyScreenReadiness(screen), "ready");
+});
+
+test("classifyScreenReadiness: an in-progress turn counts as ready (steerable)", () => {
+  assert.equal(classifyScreenReadiness("✶ Thinking… (3s · esc to interrupt)"), "ready");
+});
+
+test("classifyScreenReadiness: the boot splash (no ready marker) → splash", () => {
+  const screen = [
+    " ███ Claude Code",
+    " Welcome to Claude Code",
+    " Booting…",
+  ].join("\n");
+  assert.equal(classifyScreenReadiness(screen), "splash");
+});
+
+test("classifyScreenReadiness: a blank screen → unreadable", () => {
+  assert.equal(classifyScreenReadiness("   \n  \n"), "unreadable");
+  assert.equal(classifyScreenReadiness(""), "unreadable");
+});
 
 // `latestByWorkspace`-shaped notification record (subset we classify on).
 type Notif = { workspace_id?: string; subtitle?: string; body?: string; created_at?: string };
