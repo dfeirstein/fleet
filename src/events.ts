@@ -67,6 +67,37 @@ export interface FeedItem {
   question_prompt?: string;
 }
 
+// ── TUI screen readiness (the spawn/send pre-type gate) ─────────────────────
+// A `fleet send` to a still-booting Claude TUI used to false-positive as
+// "submitted": the boot splash swallowed the bracketed paste, and submitToClaude's
+// cleared-input probe can't tell "text left the box on Enter" from "text never
+// entered the box" (issue #38). So before typing we classify the captured screen
+// and only type when the TUI is live at its input prompt. This is the SAME
+// readiness signal the spawn path waits on (status-bar permission-mode indicator,
+// the shortcuts hint, or an in-progress turn), kept here as the single source of
+// truth so spawn and send share ONE heuristic — never parallel ones.
+
+/** Markers that a Claude Code TUI is live and accepting input: the status-bar
+ *  permission-mode indicator, the shortcuts hint, or an in-progress turn. */
+export const TUI_READY_MARKERS =
+  /auto mode on|bypass permissions on|accept edits on|\? for shortcuts|esc to interrupt/i;
+
+export type ScreenReadiness = "ready" | "splash" | "unreadable";
+
+/**
+ * Pure classification of a captured TUI screen:
+ *   - "ready"      a ready marker is present → safe to type a steer.
+ *   - "splash"     content is present but no ready marker → still booting (the
+ *                  welcome/loading splash, or a modal) — a paste here is swallowed.
+ *   - "unreadable" the screen is blank → nothing to decide on yet (mid-redraw).
+ * Exported for tests; the impure poll over a live pane is `waitForReady` (cmux.ts).
+ */
+export function classifyScreenReadiness(screen: string): ScreenReadiness {
+  if (TUI_READY_MARKERS.test(screen)) return "ready";
+  if (screen.trim().length === 0) return "unreadable";
+  return "splash";
+}
+
 // ── Classification ──────────────────────────────────────────────────────────
 
 export type BlockedKind = "question" | "permission" | "plan" | "waiting";

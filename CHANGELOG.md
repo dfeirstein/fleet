@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Fixed
+- **`fleet send` no longer false-positives a steer swallowed by the boot splash** (issue #38): `submitToClaude` now gates on TUI readiness BEFORE typing — a paste into a still-booting splash is silently eaten, and the cleared-input probe can't tell "text left the box" from "text never entered it". The readiness check is the SAME signal the spawn path waits on, now a pure classifier `classifyScreenReadiness` in `src/events.ts` (`ready | splash | unreadable`, `node:test` coverage for each) driven by an impure `waitForReady` poll in `src/cmux.ts` (matching spawn's 30s budget); `spawn.waitForClaudeReady` is refactored to share it (one heuristic, not two). A non-ready TUI yields a new `SubmitResult` `not-ready` (nothing typed) — `fleet send` reverts its dispatch stamp and warns loudly ("worker TUI not ready — steer NOT sent; check with `fleet read <id>` and re-send"), keeping the #31 failed/unverified contract intact. (#38)
+
 ## 2026-06-11
 
 ### Added
