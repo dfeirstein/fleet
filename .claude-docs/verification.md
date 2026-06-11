@@ -1,16 +1,21 @@
 # Verification — how to check work in this repo
 
-There is **no test runner** in this project. Verification is typecheck + running
-the CLI + the project's own eval-gate commands. Don't claim done without one of
-these.
+There is **no test runner except `node:test` for pure decision cores** (the event
+classifier, the proof gate, `gc` planning, daemon selfheal, autoupdate,
+captain-args, …). Everything else verifies by typecheck + running the CLI + the
+project's own eval-gate commands. Don't claim done without one of these.
 
-## The one automated gate: typecheck
+## The automated gates: typecheck + node:test
 
 ```bash
 npm run typecheck        # tsc --noEmit — must be green before every commit
+npm test                 # node --import tsx --test — the pure cores' *.test.ts suites
 ```
 
-If you add or change types, run this. It is the bar for CI-equivalence here.
+If you add or change types, run typecheck. If you add a pure decision module
+(no I/O — extract the logic from its impure shell), give it a sibling
+`*.test.ts` and keep `npm test` green. These are the bar for CI-equivalence
+here (CI runs exactly: `npm ci` → typecheck → test).
 
 ## Run the CLI directly (no build)
 
