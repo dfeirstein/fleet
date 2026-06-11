@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Docs
+- **Objective-loop routing doctrine**: `skills/fleet/SKILL.md` gains an "Objective loops" section (command surface + examples) and `skills/fleet/orchestrator-doctrine.md` expands tier 5 — teaching the Captain to route a checkable condition ("tests green", "lint clean", "endpoint returns 200") to `fleet objective --done '<check>'` BEFORE spawn-and-supervise, with the community's warnings baked in (impossible-check token burn → mandatory `--max` cap; never loop a trivial task; keep checks fast/terse since each failure re-feeds the next attempt). `fleet objective` was built (`src/commands/objective.ts`, `cli.ts`) but absent from the skill docs and reached for in ~3 of 434 logged outcomes. (#33)
+
 ### Fixed
 - **`npm run typecheck` reproducible from a clean install**: `@types/node` is now a declared devDep (`^25.9.2`) — tsconfig's `"types": ["node"]` previously resolved only where the package happened to be installed ad-hoc, so a fresh `npm ci` failed typecheck with TS2688. (#29)
 
