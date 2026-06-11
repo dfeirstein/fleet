@@ -8,11 +8,13 @@ its own cmux pane.
 ## Layers (outer → inner)
 
 ```
-bin/fleet            # shebang shim → `tsx src/cli.ts "$@"` (no build step)
+bin/fleet            # bash auto-update layer (24h throttle, ff-only on clean main, notices
+                     #   → stderr — stdout stays clean) → `tsx src/cli.ts "$@"` (no build step)
 src/cli.ts           # arg parsing → command dispatch (the only switch statement)
 src/commands/*.ts    # one file per verb: spawn, grid, read, send, status, watch,
-                     #   kill, resume, orchestrate, verify, bootstrap, currency,
-                     #   audit-docs, capture, objective, daemon, notify, doctor, setup
+                     #   kill, resume, orchestrate, verify, gc, update, done, bootstrap,
+                     #   currency, audit-docs, capture, objective, daemon, notify, doctor, setup
+                     #   (+ pure decision cores beside their verb: captain-args.ts, gc.ts)
 src/cmux.ts          # THE ONLY place that shells out to cmux (typed wrapper)
 src/registry.ts      # ~/.fleet/<session>.json — persistent "who's doing what"
 src/status.ts        # screen-text heuristic classifier (running/idle/awaiting/…)
@@ -20,8 +22,12 @@ src/notifications.ts # cmux notification feed → deterministic turn-end signal
 src/dashboard.ts     # mirror fleet state into the cmux sidebar
 src/git.ts           # worktree create/remove for isolated parallel writers
 src/project-memory.ts# shared paths + the currency clause (bootstrap/currency/audit-docs)
-src/orchestrator-record.ts # the Captain's own record in ~/.fleet
-src/daemon/*.ts      # always-on heartbeat supervisor (config, inbox, channel, policy, loop)
+src/cmux-sessions.ts # typed reader for cmux's durable session map (~/.cmuxterm/claude-hook-sessions.json)
+src/autoupdate.ts    # pure auto-update decision core (throttle / eligibility / lockfile-moved),
+                     #   shared by the bin/fleet layer and `fleet update`
+src/orchestrator-record.ts # the Captain's own record in ~/.fleet — TWO writers: captain
+                     #   spawn/resume + daemon self-heal (last-writer-wins, no lock)
+src/daemon/*.ts      # always-on heartbeat supervisor (config, inbox, channel, policy, selfheal, loop)
 skills/fleet/        # SKILL.md + orchestrator-doctrine.md — teach a Captain the loop
 ```
 
@@ -74,3 +80,14 @@ it reconciles the fleet, refreshes the sidebar, clears stuck `--yolo` bypass
 dialogs, and escalates anything needing attention (awaiting-input, stuck/zombie,
 error, rate-limited) — urgent + Captain-idle injects a turn; otherwise it appends
 to the inbox.
+
+ONE shared daemon watches all live Captains in a quadrant. Before dropping a
+Captain whose recorded surface is gone, the beat self-heals stale records
+(`src/daemon/selfheal.ts`, PR #42): if the workspace still exists and the durable
+session map shows exactly ONE live candidate surface there (siblings' panes
+excluded), it re-stamps the record's `surfaceId` (persisted via
+`writeOrchestrator`, so every reader self-corrects). Ambiguous matches (>1
+candidate) re-stamp nothing, and a record neither live nor re-matchable for ≥2
+beats fires one loud escalation before it stops being watched — never silence.
+Because the daemon and captain spawn/resume both write the orchestrator record
+(last-writer-wins, no lock), always re-load it before mutating.
