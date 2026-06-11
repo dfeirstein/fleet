@@ -400,7 +400,25 @@ export function spawn(opts: SpawnOptions): Agent {
     // attach proof when it finishes (B3 — the gate shipped but nothing invoked it).
     const task = `${opts.task}\n\n${worktreeNote}${proofInstruction(agentId)}`;
     if (waitForClaudeReady(t)) {
-      submitToClaude(t, task);
+      // The ready→submit path is verified too: a paste-collapsed brief that
+      // never leaves the input box was fail-open before (the live "autostart
+      // silently dropped" failure — issue #30).
+      const submit = submitToClaude(t, task);
+      if (submit === "failed") {
+        dispatched = false;
+        agent.status = "undispatched";
+        patch(agentId, { status: "undispatched" });
+        console.error(
+          `⚠ ${label} (${agentId}): the task brief never left the worker's input box — NOT submitted.\n` +
+            `  Inspect with: fleet read ${agentId} — the brief may still be sitting in the box\n` +
+            `  (submit it from the pane), or clear it and re-dispatch with: fleet send ${agentId} "<task>"`,
+        );
+      } else if (submit === "unverified") {
+        console.error(
+          `⚠ ${label} (${agentId}): could not verify the brief was submitted (screen unreadable) —\n` +
+            `  confirm the worker is running with: fleet read ${agentId}`,
+        );
+      }
     } else {
       // Fail LOUDLY (S3): the worker is idling with no brief — recording it as
       // a normal running spawn would leave the Captain believing it's working.

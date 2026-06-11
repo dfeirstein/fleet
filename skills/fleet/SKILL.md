@@ -34,6 +34,10 @@ fleet grid <cols>x<rows> [task...]              Tile ONE workspace into a grid o
     --cwd <path> --label <prefix> [--gated|--yolo]  worker panes (shared FS).
                                                  With a task all panes run it;
                                                  else they idle for `fleet send`.
+fleet objective <goal...> --done <check>        Loop a worker until a stop
+    [--verify <check>] [--cwd P]                CONDITION (shell check) passes,
+    [--max N] [--model M]                       feeding each failure back in
+                                                (--verify → via the eval gate)
 fleet read <agent> [--lines N] [--scrollback]   Capture a worker's screen
 fleet read <agent> --browser-screenshot <out>   Screenshot a worker's --with-browser pane
 fleet send <agent> <text...>                    Steer a worker (types text + Enter)
@@ -143,6 +147,56 @@ when the proof gate passes (judge ≠ generator, fails closed):
   that never call `fleet done` still resolve via the screen/notification
   inference, as always.
 
+## Objective loops — route checkable conditions here, not spawn-and-watch
+
+`fleet spawn` is for **tasks** ("add the endpoint", "refactor X"); `fleet
+objective` is for **conditions** — a goal whose success is a checkable shell
+predicate ("tests green", "lint clean", "endpoint returns 200", "build passes").
+When the goal IS a condition, route to the loop FIRST instead of spawn-and-watch:
+it spawns a worker, waits for its turn, runs the check, and on failure
+re-dispatches a fresh worker with the failing output fed back in — until the
+check exits 0 or the attempt cap is hit. That's the stop-condition pattern
+(judge ≠ generator: the check grades, the worker generates) instead of you
+eyeballing `fleet status`.
+
+```
+fleet objective "<goal...>" --done '<shell check>'   loop until the check exits 0
+    --verify '<check>'   run the check through the eval gate (fleet verify) in the
+                         worker's cwd/worktree instead of an inline shell check
+    --cwd <path>         where the check runs (default: your cwd)
+    --max <N>            attempt cap (default 3) — MANDATORY guard, see below
+    --model <model>      worker model (default opus)
+```
+
+Examples:
+```
+fleet objective "make the unit tests pass" --done 'npm test'
+fleet objective "fix every eslint error in src/" --done 'npm run lint'
+fleet objective "get /health returning 200" --done 'curl -fsS localhost:3000/health'
+```
+
+The warnings the community paid for, baked in:
+- **An impossible check is pure token burn.** The loop can't tell "not done yet"
+  from "can never be done" — it just keeps spawning Opus workers. The `--max` cap
+  is the only backstop: never raise it casually, and never point the loop at a
+  check that can't actually go green.
+- **Never loop a trivial task.** The spawn→wait→check harness costs more than the
+  task itself; for a one-line fix just do it (or a single `fleet spawn`). Reach
+  for a loop only when iteration is the point.
+- **Keep the check fast and its output terse.** Each failure is re-fed into the
+  next attempt's brief, so a slow check stalls every iteration and a noisy one
+  poisons the worker's context — a focused `npm test -- <file>` beats the whole
+  suite.
+
+The spawn-side sibling is `fleet spawn --done '<check>' [--max N]`: it attaches
+the same stop condition to a worker you're already spawning, but stays
+fire-and-forget — the daemon runs the check on the worker's idle and
+re-dispatches the **same** worker (continued context) on failure, where
+`fleet objective` blocks and re-spawns a **fresh** worker each attempt. Reach for
+`--done` when you want one worker to keep its context across retries; reach for
+`objective` when a clean-slate attempt each iteration is better (or you want the
+call to block until done). Same fast/terse-check and `--max` discipline applies.
+
 ## Browser self-verify for UI tasks (paste into worker briefs)
 
 Workers are plain Claude Code sessions with bash, and cmux auto-sets
@@ -215,6 +269,28 @@ makes every worker good *by default*. Three moves, backed by the
 
 You can also state boundaries in the worker's prompt ("do not deploy", "don't
 push") — auto mode's classifier enforces them.
+
+**Answering a worker's PERMISSION prompt (`fleet reply`, or typing into its
+pane) carries the user's authority — treat it as a verification step, not a
+formality:**
+
+- **Already in scope** — the user's request, the brief you wrote, or a
+  pre-agreed approval envelope covers the exact action → `allow`, keep moving.
+- **Destructive or critical** (deletes, force-push, deploys, schema/data
+  migrations, sending data out) → neither rubber-stamp nor stall: **verify it
+  first**. `fleet read` the worker for context; confirm the exact target
+  (path, branch, env, origin) is the one the task calls for and the action is
+  the correct next step toward the goal. Verified correct and in scope →
+  `allow`; wrong target, out of scope, or unverifiable → `deny` plus a
+  steering `fleet send`, or surface it to the user (inconclusive = deny).
+- **NEVER `always`, `all`, or `bypass`** — standing grants that outlive the
+  prompt — unless the user explicitly granted them.
+- **Unattended waves:** agree the approval envelope with the user UP FRONT
+  ("overnight I may approve dep installs and test-DB resets; all else queues
+  to the inbox") so in-scope approvals stay autonomous instead of stalling.
+
+Past the 120s window the prompt falls back to the worker's TUI — answer it
+with `fleet send`, same rules.
 
 ## Two layouts: separate workspaces vs a grid
 
