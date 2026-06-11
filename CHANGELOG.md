@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Fixed
+- **Captain resume safety** (#36, #37): a bare `fleet captain --resume` / `fleet orchestrate --resume` no longer defaults the name to "Captain" (which spawned a duplicate Captain that `claude --continue` forked into the live Captain's conversation) — it now ERRORS and lists the live captains (records filtered by `surfaceExists`) with the exact `fleet captain <name> --resume` to run. On the captain/orchestrate path, `--help`/`-h` prints usage and any flag outside the known set (`--resume`/`--split`/`--no-daemon`/`--model`/`--command`/`--close-origin`/`--print`) errors with usage instead of spawning a stray Captain. Resume now targets `claude --resume <sessionId>` — the id is resolved from the orchestrator record or the durable session map (`src/cmux-sessions.ts`, by the prior pane's surface) and stamped onto the record (best-effort: a fresh Captain's id is unknown at spawn, resolved on a later resume) — falling back to `claude --continue` only with a loud fork-hazard warning when no id is resolvable. New `fleet captain <name> --resume --print` emits the in-pane manual relaunch recipe (`cd … && exec env FLEET_SESSION=… claude --resume <id> --remote-control … --append-system-prompt-file …`) without touching cmux. Decision logic extracted to a pure `src/commands/captain-args.ts` with `node:test` coverage. (#TBD)
+
 ## 2026-06-11
 
 ### Added

@@ -31,6 +31,12 @@ import {
   orchestratorSession,
   type OrchestratorRecord,
 } from "../orchestrator-record.js";
+import { readHookSessions, findSession } from "../cmux-sessions.js";
+import {
+  captainResumeArg,
+  inPaneResumeRecipe,
+  type CaptainListing,
+} from "./captain-args.js";
 import { ensureSharedDaemon } from "./daemon.js";
 
 /** Max Captains per family — a 2×2 quadrant. */
@@ -71,6 +77,47 @@ function writePromptFile(name: string, session: string): string {
   return promptPath;
 }
 
+/** Every Captain on record whose pane is still live (surface-level — quadrant
+ *  siblings share a workspace). Drives the no-name `--resume` listing (#36). */
+export function liveCaptains(): CaptainListing[] {
+  return loadAllOrchestrators()
+    .filter((o) => surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId }))
+    .map((o) => ({ name: o.name, session: o.session }));
+}
+
+/** Resolve a Captain's Claude session id for `--resume`: the stamped record value
+ *  first, else the durable map via the prior pane's surface (the unique lane —
+ *  the cwd lane is ambiguous since Captains share $HOME). undefined → caller
+ *  falls back to `--continue` with a warning. */
+function resolveSessionId(prev: OrchestratorRecord): string | undefined {
+  if (prev.sessionId) return prev.sessionId;
+  const map = readHookSessions();
+  if (!map) return undefined;
+  const sess = findSession(map, { surfaceId: prev.surfaceId, workspaceId: prev.workspaceId });
+  return sess?.sessionId;
+}
+
+/**
+ * `fleet captain <name> --resume --print` (#36 bonus): the in-pane manual relaunch
+ * command, WITHOUT touching cmux — for when the user Ctrl-Cs the Captain pane and
+ * relaunches in place. Resolves the session id the same way `--resume` does, and
+ * rewrites the prompt file so the recipe points at current doctrine.
+ */
+export function captainResumeRecipe(name: string): string {
+  const session = slug(name);
+  const prev = loadOrchestrator(session);
+  if (!prev) {
+    throw new Error(`no Captain "${name}" on record (fleet session "${session}") — nothing to resume`);
+  }
+  const promptPath = writePromptFile(name, session);
+  return inPaneResumeRecipe({
+    session,
+    cwd: homedir(),
+    sessionId: resolveSessionId(prev),
+    promptPath,
+  });
+}
+
 export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boolean; model?: string } = {}): OrchestratorRecord {
   mkdirSync(fleetDir(), { recursive: true });
   const session = slug(name);
@@ -87,16 +134,24 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
   // workspace. FLEET_SESSION pins the fleet to its own named registry, so its
   // workers are isolated from other sessions regardless of cwd.
   //
-  // --resume re-appoints an EXISTING Captain without losing her context: `claude
-  // --continue` resumes the most recent conversation in this cwd (homedir) and
-  // re-applies the (possibly updated) doctrine system prompt on top of it. Use it
-  // to adopt new doctrine mid-life; the prior workspace should be closed after.
-  const cont = opts.resume ? "--continue " : "";
+  // --resume re-appoints an EXISTING Captain without losing her context. Resolve
+  // the recorded Claude session id and target it exactly (`claude --resume <id>`);
+  // only when no id is resolvable fall back to `--continue` (most-recent-in-cwd),
+  // which forked the live Captain's conversation in the #36 incident — so warn
+  // loudly there. The (possibly updated) doctrine prompt re-applies on top either way.
+  let resumeArg = "";
+  let resolvedSessionId: string | undefined;
+  if (opts.resume) {
+    resolvedSessionId = prev ? resolveSessionId(prev) : undefined;
+    const r = captainResumeArg(resolvedSessionId);
+    resumeArg = r.arg;
+    if (r.warning) console.warn(`⚠ ${r.warning}`);
+  }
   // --model pins the Captain to a specific model (e.g. claude-fable-5); omitted → user default.
   const mdl = opts.model ? `--model '${opts.model}' ` : "";
   // Every Captain launches with Remote Control on, named for its session, so the
   // user can talk to any Captain (yoshi, yoshi-2, …) from the Claude mobile app.
-  const command = `FLEET_SESSION=${session} claude --remote-control '${session}' ${mdl}${cont}--append-system-prompt-file '${promptPath}'`;
+  const command = `FLEET_SESSION=${session} claude --remote-control '${session}' ${mdl}${resumeArg}--append-system-prompt-file '${promptPath}'`;
 
   // Resuming a Captain that shares its workspace with live siblings (a quadrant):
   // resume IN-PLACE. Closing the whole workspace would nuke the siblings, and a
@@ -119,6 +174,7 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
       }
       return launchInSplit(prev.workspaceId, "right", siblings[0]!.surfaceId, name, session, command, {
         daemon: opts.daemon,
+        sessionId: resolvedSessionId,
       });
     }
   }
@@ -143,6 +199,10 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
     surfaceId: ws.surfaceId,
     workspaceRef: ws.workspaceRef,
     declaredAt: new Date().toISOString(),
+    // Stamped on a resume that resolved an id (so the next resume keeps it); a
+    // fresh Captain's id is unknown at spawn — it lands in the durable map after
+    // the session runs and is resolved on a later --resume.
+    sessionId: resolvedSessionId,
   };
   writeFileSync(orchestratorPath(session), JSON.stringify(record, null, 2));
 
@@ -257,7 +317,7 @@ function launchInSplit(
   name: string,
   session: string,
   command: string,
-  opts: { daemon?: boolean } = {},
+  opts: { daemon?: boolean; sessionId?: string } = {},
 ): OrchestratorRecord {
   const beforeIds = new Set(listGridCells(workspace).map((c) => c.surfaceId));
   // Focus the new pane so its lazily-booted PTY comes up before we wait on it.
@@ -283,6 +343,7 @@ function launchInSplit(
     surfaceId: cell.surfaceId,
     workspaceRef,
     declaredAt: new Date().toISOString(),
+    sessionId: opts.sessionId,
   };
   writeFileSync(orchestratorPath(session), JSON.stringify(record, null, 2));
 
