@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Fixed
+- **Daemon self-heals a stale Captain surfaceId instead of silently dropping a live Captain** (issue #39): an in-pane Captain relaunch (`Ctrl-C` → `claude --resume`) changes the pane's surface UUID, so the orchestrator record's `surfaceId` went stale and the shared daemon's `surfaceExists` filter dropped a LIVE Captain (`watching 0 Captains`, no error). The beat now reconciles before dropping: when a record's surface is gone but its workspace still exists and the durable session map (`~/.cmuxterm/claude-hook-sessions.json`) shows exactly ONE live candidate surface in that workspace (excluding siblings' panes), it re-stamps the record's `surfaceId` (persisted, so every reader self-corrects) and keeps watching. Fail closed: an ambiguous match (>1 candidate) re-stamps nothing. A record that's neither live nor re-matchable for ≥2 consecutive beats fires ONE loud escalation before it stops being watched — never silence. New pure decision core `src/daemon/selfheal.ts` (`node:test`: noop / clean re-match / ambiguous / workspace-gone), `writeOrchestrator` record writer, daemon `reconcileLiveCaptains`. (#39)
+
 ## 2026-06-11
 
 ### Added

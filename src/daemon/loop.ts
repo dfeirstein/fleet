@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import {
   readScreen,
   surfaceExists,
+  workspaceExists,
   closeWorkspace,
   streamEvents,
   eventsSupported,
@@ -47,7 +48,9 @@ import {
   type DaemonConfig,
   type SharedSettings,
 } from "./config.js";
-import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-record.js";
+import { loadAllOrchestrators, writeOrchestrator, type OrchestratorRecord } from "../orchestrator-record.js";
+import { readHookSessions, type DurableSessionMap } from "../cmux-sessions.js";
+import { decideSelfHeal } from "./selfheal.js";
 import { routeMessage } from "./channel.js";
 import { newMemory, evaluate, evaluateResources, waveCompleteMessage, type DaemonMemory } from "./policy.js";
 
@@ -58,6 +61,95 @@ export function liveCaptains(): OrchestratorRecord[] {
   return loadAllOrchestrators().filter(
     (o) => o.workspaceId && o.surfaceId && surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId }),
   );
+}
+
+/** Distinct LIVE surfaces in a workspace, from the durable session map, minus
+ *  any surface already owned by another Captain record (`exclude`) — so a
+ *  quadrant sibling's pane is never a re-match candidate. */
+function liveCandidateSurfaces(
+  map: DurableSessionMap | undefined,
+  workspaceId: string,
+  exclude: Set<string>,
+): string[] {
+  if (!map) return [];
+  const out = new Set<string>();
+  for (const s of map.sessions) {
+    if (s.workspaceId !== workspaceId || !s.surfaceId) continue;
+    if (exclude.has(s.surfaceId)) continue;
+    if (surfaceExists({ workspace: workspaceId, surface: s.surfaceId })) out.add(s.surfaceId);
+  }
+  return [...out];
+}
+
+/** After ≥2 consecutive unresolvable beats a Captain gets ONE loud warning. */
+const SELFHEAL_WARN_BEATS = 2;
+
+/**
+ * Self-heal pass over every Captain record (issue #39). Returns the set still
+ * worth watching: surfaces that are live PLUS records re-matched to a recovered
+ * surface after an in-pane relaunch changed the pane's UUID (the corrected
+ * record is persisted so every reader self-corrects). A record that is neither
+ * live nor re-matchable for ≥2 consecutive beats gets ONE warning via the
+ * escalation channel before it drops out of the watch set — never silence.
+ * `unresolved` carries the consecutive-beat count across beats (session-keyed).
+ */
+export function reconcileLiveCaptains(
+  unresolved: Map<string, number>,
+  settings: SharedSettings,
+): OrchestratorRecord[] {
+  const records = loadAllOrchestrators().filter((o) => o.workspaceId && o.surfaceId);
+  const map = readHookSessions();
+  const live: OrchestratorRecord[] = [];
+  const seen = new Set<string>();
+
+  for (const o of records) {
+    seen.add(o.session);
+    const surfaceLive = surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId });
+    const wsExists = surfaceLive || workspaceExists(o.workspaceId);
+    // Surfaces other live-or-not records already claim in this workspace — never
+    // re-stamp onto a sibling Captain's pane.
+    const owned = new Set(
+      records.filter((r) => r !== o && r.workspaceId === o.workspaceId).map((r) => r.surfaceId),
+    );
+    const candidateSurfaces =
+      surfaceLive || !wsExists ? [] : liveCandidateSurfaces(map, o.workspaceId, owned);
+    const decision = decideSelfHeal({ surfaceLive, workspaceExists: wsExists, candidateSurfaces });
+
+    switch (decision.action) {
+      case "keep":
+        unresolved.delete(o.session);
+        live.push(o);
+        break;
+      case "rematch": {
+        unresolved.delete(o.session);
+        const healed: OrchestratorRecord = { ...o, surfaceId: decision.surfaceId };
+        try {
+          writeOrchestrator(healed);
+          console.log(
+            `[daemon] self-heal: re-stamped ${o.name} surface ${o.surfaceId.slice(0, 8)} → ${decision.surfaceId.slice(0, 8)} (in-pane relaunch)`,
+          );
+        } catch (e) {
+          console.error(`[daemon] self-heal write failed (${o.session}): ${(e as Error).message}`);
+        }
+        live.push(healed);
+        break;
+      }
+      case "unresolved": {
+        const n = (unresolved.get(o.session) ?? 0) + 1;
+        unresolved.set(o.session, n);
+        if (n === SELFHEAL_WARN_BEATS) {
+          const text = `Captain ${o.name} surface ${o.surfaceId.slice(0, 8)} is gone and couldn't be re-matched (${decision.reason}) — supervision stopped. Re-declare with \`fleet captain\` or re-stamp its record.`;
+          const delivery = routeMessage(configForCaptain(o, settings), text, true);
+          console.log(`[daemon] ${delivery} (self-heal unresolved): ${text}`);
+        }
+        break; // not watched
+      }
+    }
+  }
+
+  // Forget counts for records that vanished entirely (a fresh warning re-arms).
+  for (const s of [...unresolved.keys()]) if (!seen.has(s)) unresolved.delete(s);
+  return live;
 }
 
 /** Build a per-Captain DaemonConfig from its record + the shared tunables. */
@@ -385,6 +477,7 @@ export function runLoop(): void {
   const settings = loadSharedSettings();
   const mems = new Map<string, DaemonMemory>(); // per-Captain memory (session-keyed)
   const resumed = new Set<string>(); // sessions already reconciled once
+  const selfHealUnresolved = new Map<string, number>(); // session → consecutive unresolvable beats (#39)
   const startedAt = new Date().toISOString();
   const daemonWorkspace = process.env.CMUX_WORKSPACE_ID;
   let ticks = 0;
@@ -399,7 +492,7 @@ export function runLoop(): void {
     lastBeatMs = now;
     ticks++;
 
-    const captains = liveCaptains();
+    const captains = reconcileLiveCaptains(selfHealUnresolved, settings);
     const liveSessions = new Set(captains.map((c) => c.session));
     for (const o of captains) {
       const cfg = configForCaptain(o, settings);

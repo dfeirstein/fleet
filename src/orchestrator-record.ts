@@ -7,7 +7,7 @@
 // re-pointing another's daemon. The legacy singleton `~/.fleet/orchestrator.json`
 // is still read as the default session's record so a Captain declared before the
 // per-session split isn't stranded.
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -49,6 +49,14 @@ function readRecord(path: string): OrchestratorRecord | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Persist a record to its own per-session path. Used by the daemon self-heal
+ *  to re-stamp a corrected surfaceId after an in-pane relaunch (issue #39); the
+ *  record's own `session` selects the path so a legacy-singleton record gets a
+ *  proper per-session file written. */
+export function writeOrchestrator(rec: OrchestratorRecord): void {
+  writeFileSync(orchestratorPath(rec.session), JSON.stringify(rec, null, 2));
 }
 
 export function loadOrchestrator(session?: string): OrchestratorRecord | undefined {
