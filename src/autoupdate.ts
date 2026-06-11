@@ -40,3 +40,15 @@ export function autoUpdateEligible(ctx: { branch: string; clean: boolean; optOut
 export function lockfileChanged(changedFiles: string[]): boolean {
   return changedFiles.some((f) => f === "package-lock.json");
 }
+
+/**
+ * After a successful ff pull, decide whether to keep it or roll back. If the
+ * lockfile moved and `npm ci` failed, the new code would run against stale
+ * node_modules — so roll back to the pre-pull sha and leave the checkout
+ * consistent. The bash auto-updater (`bin/fleet`) mirrors this exactly; the
+ * `npmCiOk` input is irrelevant when the lockfile didn't move (deps unchanged).
+ */
+export function postUpdateAction(ctx: { lockfileMoved: boolean; npmCiOk: boolean }): "commit" | "rollback" {
+  if (ctx.lockfileMoved && !ctx.npmCiOk) return "rollback";
+  return "commit";
+}

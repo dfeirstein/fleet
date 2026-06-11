@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shouldCheckForUpdate, autoUpdateEligible, lockfileChanged, THROTTLE_MS } from "./autoupdate.js";
+import { shouldCheckForUpdate, autoUpdateEligible, lockfileChanged, postUpdateAction, THROTTLE_MS } from "./autoupdate.js";
 
 test("shouldCheckForUpdate: no stamp → always check", () => {
   assert.equal(shouldCheckForUpdate(null), true);
@@ -45,4 +45,18 @@ test("lockfileChanged: true only when package-lock.json moved", () => {
   assert.equal(lockfileChanged(["src/cli.ts", "package-lock.json"]), true);
   assert.equal(lockfileChanged(["src/cli.ts", "README.md"]), false);
   assert.equal(lockfileChanged([]), false);
+});
+
+test("postUpdateAction: rolls back only when the lockfile moved AND npm ci failed", () => {
+  assert.equal(postUpdateAction({ lockfileMoved: true, npmCiOk: false }), "rollback");
+});
+
+test("postUpdateAction: commits when npm ci succeeded", () => {
+  assert.equal(postUpdateAction({ lockfileMoved: true, npmCiOk: true }), "commit");
+});
+
+test("postUpdateAction: a failed npm ci is irrelevant when the lockfile didn't move", () => {
+  // No lockfile change → npm ci was never run; never roll back a clean code-only pull.
+  assert.equal(postUpdateAction({ lockfileMoved: false, npmCiOk: false }), "commit");
+  assert.equal(postUpdateAction({ lockfileMoved: false, npmCiOk: true }), "commit");
 });

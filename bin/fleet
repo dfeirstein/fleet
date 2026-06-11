@@ -52,9 +52,16 @@ __fleet_autoupdate() {
   new="$(git rev-parse HEAD 2>/dev/null)" || return 0
   [ "$old" != "$new" ] || return 0
 
-  # Reinstall deps only when the lockfile actually moved in the pull.
+  # Reinstall deps only when the lockfile actually moved in the pull. If that
+  # install fails, roll the pull back to the pre-pull sha so we never exec new
+  # code against stale node_modules — the user's command runs on the consistent
+  # old checkout instead, and the update is retried next window / via `fleet update`.
   if ! git diff --quiet "$old" "$new" -- package-lock.json >/dev/null 2>&1; then
-    npm ci --silent >/dev/null 2>&1 || echo "fleet: npm ci failed after update — run \`fleet update\` to repair deps" >&2
+    if ! npm ci --silent >/dev/null 2>&1; then
+      git reset --hard "$old" >/dev/null 2>&1
+      echo "fleet: update deferred: dep install failed (rolled back to ${old:0:7}) — run \`fleet update\` to retry" >&2
+      return 0
+    fi
   fi
   echo "fleet updated → ${new:0:7}" >&2
 }
