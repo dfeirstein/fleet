@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **`fleet spawn --done '<check>' [--max N]`** — a stop condition on any spawn (closes the loop-engineering gap from `research/loop-engineering-vs-fleet-2026-06-11.md`: turns the eval gate from after-the-fact `fleet verify` into the loop itself). New pure decision core `src/done-loop.ts` (`node:test` coverage: gating, bounded re-dispatch vs exhaustion, feed-forward/escalation text); `spawn` records `doneCheck`/`doneMaxLoops`/`doneLoopCount` on the agent and the shared daemon drives it on stable-idle — pass runs through the existing eval gate (`verify`, judge≠generator, in the worker's dir) and auto-attaches the proof, fail re-dispatches the SAME worker (continued context) with the failure output bounded by `--max` (default 3), exhaustion sets a loud `fleet status` flag + urgent escalation and never auto-retries again. Registry/daemon-driven (shape (a)) so spawn keeps its fire-and-forget semantics; fail-closed (an unrunnable check is a FAIL) and never re-dispatches a `blocked-on-you`/`awaiting-input` worker (gated to `idle`). (#PR)
+
 ### Fixed
 - **`npm run typecheck` reproducible from a clean install**: `@types/node` is now a declared devDep (`^25.9.2`) — tsconfig's `"types": ["node"]` previously resolved only where the package happened to be installed ad-hoc, so a fresh `npm ci` failed typecheck with TS2688. (#29)
 

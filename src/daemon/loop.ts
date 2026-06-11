@@ -20,8 +20,18 @@ import {
   type EventStreamHandle,
 } from "../cmux.js";
 import { FleetEventReactor, eventsCursorFile, type EventFrame, type AckFrame } from "../events.js";
-import { listAgents, target } from "../registry.js";
+import { listAgents, patch, target, type Agent } from "../registry.js";
 import { snapshot } from "../commands/status.js";
+import { verify } from "../commands/verify.js";
+import { send } from "../commands/send.js";
+import { appendOutcome } from "../outcomes.js";
+import {
+  shouldRunDoneCheck,
+  doneLoopOutcome,
+  redispatchPrompt,
+  exhaustedMessage,
+  DONE_STARTUP_GRACE_MS,
+} from "../done-loop.js";
 import { pendingPromptsFor, type AgentPrompt } from "../commands/prompts.js";
 import { windowRemainingMs, replyCommandHint } from "../feed-steering.js";
 import { resume } from "../commands/resume.js";
@@ -113,6 +123,85 @@ function isBypassDialog(screen: string): boolean {
   return /Bypass Permissions mode/i.test(screen) && /Yes, I accept/i.test(screen);
 }
 
+/**
+ * `fleet spawn --done` driver: on a worker's stable-idle, run its done-check
+ * once per turn via the shared eval gate (`verify` — judge ≠ generator, runs in
+ * the worker's dir and auto-attaches a proof on pass). On fail, re-dispatch the
+ * SAME worker with the failure output (bounded by doneMaxLoops); on exhaustion,
+ * escalate loudly and stop — never an infinite loop, never re-dispatching a
+ * worker that isn't cleanly idle (shouldRunDoneCheck gates on status "idle", so
+ * blocked-on-you/awaiting-input/error are excluded by construction).
+ *
+ * Runs INLINE on the beat: keep done-checks fast (the loop-engineering point is
+ * a cheap external check), since a slow one blocks the shared daemon's beat.
+ */
+export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now: number): void {
+  if (!a.doneCheck) return;
+  // Per-turn bookkeeping keyed by the dispatch we'd check. A new dispatch
+  // (re-dispatch or `fleet send`) resets sawActive/checked → a fresh check.
+  let st = mem.doneLoop[a.agentId];
+  if (!st || st.dispatchAt !== a.lastDispatchAt) {
+    st = { dispatchAt: a.lastDispatchAt, sawActive: false, checked: false };
+    mem.doneLoop[a.agentId] = st;
+  }
+  if (a.status === "running" || a.status === "unknown" || a.status === "rate-limited") st.sawActive = true;
+
+  const graceElapsed = now - Date.parse(a.lastDispatchAt) > DONE_STARTUP_GRACE_MS;
+  if (
+    !shouldRunDoneCheck({
+      hasCheck: true,
+      status: a.status,
+      exhausted: a.doneLoopExhausted === true,
+      sawActive: st.sawActive,
+      graceElapsed,
+      alreadyChecked: st.checked,
+    })
+  ) {
+    return;
+  }
+  st.checked = true; // once per turn, even if the check itself errors
+
+  // Run the stop-condition through the shared eval gate (verify): it executes
+  // the check in the worker's worktree/cwd and, on pass, auto-attaches the proof
+  // — the Captain's `fleet verify` habit, on the daemon's beat.
+  const { pass, output } = verify(a.agentId, a.doneCheck);
+  const loopCount = a.doneLoopCount ?? 0;
+  const maxLoops = a.doneMaxLoops ?? 3;
+
+  switch (doneLoopOutcome(pass, loopCount, maxLoops)) {
+    case "pass":
+      console.log(`[daemon] --done check passed for ${a.label} — proof attached`);
+      return;
+    case "redispatch": {
+      const attempt = loopCount + 1;
+      try {
+        send(a.agentId, redispatchPrompt(a.doneCheck, output, attempt));
+        patch(a.agentId, { doneLoopCount: attempt });
+        console.log(`[daemon] --done check failed for ${a.label} — re-dispatched (${attempt}/${maxLoops})`);
+      } catch (e) {
+        console.error(`[daemon] --done re-dispatch failed for ${a.label}: ${(e as Error).message}`);
+      }
+      return;
+    }
+    case "exhausted": {
+      // Loud, never silent, never auto-retried again (doneLoopExhausted gates it off).
+      patch(a.agentId, { doneLoopExhausted: true });
+      const text = exhaustedMessage(a.label, a.doneCheck, maxLoops, output);
+      const delivery = routeMessage(cfg, text, true);
+      console.log(`[daemon] ${delivery} (--done exhausted): ${text}`);
+      appendOutcome({
+        event: "verify",
+        agentId: a.agentId,
+        label: a.label,
+        verdict: "fail",
+        check: a.doneCheck,
+        cwd: a.worktree?.path ?? a.cwd,
+      });
+      return;
+    }
+  }
+}
+
 function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const rows = snapshot(); // reconcile + classify (marks dead)
   // Draw the dashboard + heartbeat on the ORCHESTRATOR's workspace (the daemon's
@@ -173,10 +262,16 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     if (!prev || prev.hash !== hash) mem.screenSince[a.agentId] = { hash, since: now };
     const stuckMs = now - mem.screenSince[a.agentId]!.since;
 
+    // `fleet spawn --done` loop: on stable-idle, run the stop-condition and
+    // pass→attach-proof / fail→re-dispatch / exhausted→escalate. Owns the idle
+    // of a --done worker, so the doneNoProof nudge below is suppressed for it.
+    runDoneLoop(a, mem, cfg, now);
+
     // Feature 3 diagnostic: an idle worker that attached no proof is a
     // done-without-proof candidate. Cheap (registry only) — the runnable gate
-    // stays in `fleet done`/`digest`, never on the daemon's timer.
-    const doneNoProof = a.status === "idle" && (a.proofs?.length ?? 0) === 0;
+    // stays in `fleet done`/`digest`, never on the daemon's timer. A --done
+    // worker's idle is the loop's to grade (above), so it's excluded here.
+    const doneNoProof = a.status === "idle" && (a.proofs?.length ?? 0) === 0 && !a.doneCheck;
     const myPrompts = prompts.filter((p) => p.agent.agentId === a.agentId);
     const oldest = myPrompts[0]?.prompt;
     const pendingPrompt = oldest
@@ -228,6 +323,9 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   }
   for (const id of Object.keys(mem.lastResourceAlert)) {
     if (!agents.find((a) => a.agentId === id)) delete mem.lastResourceAlert[id];
+  }
+  for (const id of Object.keys(mem.doneLoop)) {
+    if (!agents.find((a) => a.agentId === id)) delete mem.doneLoop[id];
   }
 
   // Idle initiative: when a wave that was running settles into SUSTAINED

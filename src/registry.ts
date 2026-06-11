@@ -61,6 +61,19 @@ export interface Agent {
   ownsWorkspace: boolean;
   /** Set when the worker runs in an isolated git worktree. */
   worktree?: { path: string; branch: string; base: string; repo: string };
+  /** Stop condition attached at spawn (`fleet spawn --done '<check>'`): when the
+   *  worker goes stable-idle, the daemon runs this check in the worker's dir
+   *  (worktree/cwd). Pass → proof auto-attaches (verify mechanics); fail →
+   *  re-dispatch the same worker with the failure output, bounded by
+   *  `doneMaxLoops`; exhausted → loud escalation. Needs the daemon running. */
+  doneCheck?: string;
+  /** Max re-dispatches the `--done` loop performs before exhausting (default 3). */
+  doneMaxLoops?: number;
+  /** Re-dispatches the `--done` loop has performed so far (0 at spawn). */
+  doneLoopCount?: number;
+  /** Set once the `--done` loop exhausted its budget without the check passing:
+   *  surfaced in `fleet status`, escalated loudly, never silently retried again. */
+  doneLoopExhausted?: boolean;
   status: AgentStatus;
   /** Proof-of-work claims attached via `fleet done --proof` (untrusted until the
    *  gate grades them — see src/proof.ts). */

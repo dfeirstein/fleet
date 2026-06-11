@@ -38,6 +38,9 @@ export interface FleetRow {
   /** The pending Feed prompt kind behind a blocked-on-you row (question/
    *  permission/plan) — answerable via `fleet reply` while in the 120s window. */
   blockedKind?: string;
+  /** A `fleet spawn --done` loop that exhausted its budget without passing —
+   *  flagged loudly so the Captain investigates rather than silently bumping --max. */
+  doneLoopExhausted?: boolean;
   /** When the worker was last given work — the stable-idle dwell (watch/daemon)
    *  refuses to declare quiescence while any dispatch is this fresh. */
   lastDispatchAt: string;
@@ -191,6 +194,7 @@ export function snapshot(): FleetRow[] {
       task: a.task,
       proof,
       blockedKind: status === "blocked-on-you" ? block?.kind : undefined,
+      doneLoopExhausted: a.doneLoopExhausted,
       lastDispatchAt: a.lastDispatchAt,
       ports: pre.ports.length ? pre.ports : undefined,
       prUrls: pre.prUrls.length ? pre.prUrls : undefined,
@@ -229,11 +233,13 @@ export function renderTable(rows: FleetRow[]): string {
     const flag =
       r.status === "undispatched"
         ? "⚠ brief NOT dispatched — fleet send it "
-        : r.blockedKind
-          ? `◍ ${r.blockedKind} pending — fleet reply `
-          : r.proof === "none"
-            ? "⚠ done (no proof) "
-            : "";
+        : r.doneLoopExhausted
+          ? "⚠ --done loop exhausted — investigate "
+          : r.blockedKind
+            ? `◍ ${r.blockedKind} pending — fleet reply `
+            : r.proof === "none"
+              ? "⚠ done (no proof) "
+              : "";
     const task = r.task.length > 50 ? r.task.slice(0, 47) + "..." : r.task;
     // Snapshot enrichment: dev-server ports + PR URLs, where the one-RPC
     // sidebar snapshot had them (absent on older cmux — column just omitted).

@@ -110,6 +110,13 @@ Commands:
     --with-browser [url]   Also open a companion browser pane in the worker's
                            workspace (default about:blank); screenshot it with
                            \`fleet read <agent> --browser-screenshot <out>\`
+    --done <check>         Stop condition: when the worker goes stable-idle the
+                           daemon runs <check> in its dir — pass auto-attaches
+                           proof (judge≠generator), fail re-dispatches the same
+                           worker with the failure output (needs the daemon;
+                           keep the check fast — it runs inline on the beat)
+    --max <N>              Re-dispatch at most N times for --done (default 3);
+                           exhaustion escalates loudly, never loops forever
 
   Default permission mode is 'auto': autonomous, but a classifier blocks
   dangerous actions (deploys, curl|bash, force-push, mass deletes, etc.).
@@ -258,12 +265,18 @@ async function main(): Promise<void> {
         branch: str(flags.branch),
         standalone: flags.standalone === true,
         withBrowser: flags["with-browser"] === true ? true : str(flags["with-browser"]),
+        doneCheck: str(flags.done),
+        doneMaxLoops: str(flags.max) ? Number(str(flags.max)) : undefined,
       };
       const agent = spawn(opts);
       console.log(`spawned ${agent.agentId} (${agent.label})`);
       console.log(`  workspace: ${agent.workspace}  surface: ${agent.surface}`);
       console.log(`  cwd: ${agent.cwd}  model: ${agent.model}  mode: ${agent.mode}`);
       if (agent.worktree) console.log(`  worktree: ${agent.worktree.branch}  (off ${agent.worktree.base})`);
+      if (agent.doneCheck)
+        console.log(
+          `  done-check: ${agent.doneCheck}  (daemon runs it on idle; re-dispatch ≤${agent.doneMaxLoops}× on fail)`,
+        );
       break;
     }
     case "grid": {
