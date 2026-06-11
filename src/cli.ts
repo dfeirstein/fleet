@@ -14,6 +14,7 @@ import { gc, type GcItemKind } from "./commands/gc.js";
 import { orchestrate, captainSplit, liveCaptains, captainResumeRecipe } from "./commands/orchestrate.js";
 import { unknownCaptainFlags, noNameResumeError, normalizeCaptainArgs, CAPTAIN_HELP } from "./commands/captain-args.js";
 import { setup } from "./commands/setup.js";
+import { update } from "./commands/update.js";
 import { doctor } from "./commands/doctor.js";
 import { verify } from "./commands/verify.js";
 import { verifyVisual } from "./commands/verify-visual.js";
@@ -219,7 +220,18 @@ Commands:
                                              → spawn a sibling Captain; --dock pins
                                              fleet watch + cmux feed tui into the
                                              project's .cmux/dock.json)
-  doctor                                     Diagnose the install (cmux/PATH/…)
+  doctor                                     Diagnose the install (cmux/PATH/…,
+                                             plus install mode: checkout path,
+                                             branch, ahead/behind origin/main,
+                                             autoupdate on/off)
+  update                                      Explicit ff-only pull of main +
+                                             npm ci (only if the lockfile moved);
+                                             prints the CHANGELOG delta and
+                                             restarts the daemon if it's running.
+                                             Refuses on a dirty tree / non-main.
+                                             (bin/fleet also auto-updates once/24h
+                                             on clean main — FLEET_NO_AUTOUPDATE=1
+                                             opts out)
   orchestrate|captain [name] [--resume]      Appoint a Fleet Captain — a badged
         [--split] [--model M] [--print]      control-plane workspace you talk to
                                              (--resume re-appoints an EXISTING
@@ -356,6 +368,12 @@ async function main(): Promise<void> {
     }
     case "doctor": {
       doctor();
+      break;
+    }
+    case "update": {
+      const res = update();
+      console.log(res.message);
+      if (!res.ok) process.exitCode = 1;
       break;
     }
     case "orchestrate":

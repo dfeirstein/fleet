@@ -42,24 +42,40 @@ it runs the fleet for you.
 
 ### What that one sentence resolves to
 
-“clone fleet and launch my captain” is all you say — Claude runs the block below
-and drops you into a Captain session. It's also a copy-paste path if you'd rather
-do it yourself:
+“clone fleet and launch my captain” is all you say — Claude runs the one-liner
+below and drops you into a Captain session. It's also a copy-paste path if you'd
+rather do it yourself:
 
 ```bash
-git clone https://github.com/dfeirstein/fleet.git
-cd fleet && ./install.sh        # checks cmux/Node/git, npm install (no build), links `fleet` + the skill
-fleet doctor                    # confirm green
+curl -fsSL https://raw.githubusercontent.com/dfeirstein/fleet/main/install.sh | bash
 fleet captain                   # launches "⚓ <YourName>" — your Fleet Captain workspace
 ```
 
-`install.sh` checks for cmux/Node/git, installs deps (no build step — TS runs via
-`tsx`), symlinks `fleet` into `~/.local/bin`, and installs the Fleet skill into
-`~/.claude/skills`. If `~/.local/bin` isn't on your PATH, add it
-(`export PATH="$HOME/.local/bin:$PATH"`) and reopen your shell.
+The installer checks for cmux/Node 20+/git, clones fleet to `~/.local/share/fleet`
+(or fast-forward-pulls it if already there), installs deps (no build step — TS runs
+via `tsx`), symlinks `fleet` into `~/.local/bin` + the Fleet skill into
+`~/.claude/skills` (backing up any real skill dir to a timestamped `.bak`), and
+runs `fleet doctor`. It's idempotent — safe to re-run. If `~/.local/bin` isn't on
+your PATH, add it (`export PATH="$HOME/.local/bin:$PATH"`) and reopen your shell.
 
-- **`fleet doctor`** — diagnose an install (cmux reachable? PATH? skill? daemon?).
-- **`fleet setup`** — re-link after a `git pull` (idempotent).
+**Always current.** After install, `bin/fleet` keeps itself on the latest `main`
+automatically — at most once per 24h, only on a clean checkout sitting on `main`,
+fast-forward-only, with a one-line `fleet updated → <sha>` notice. Any failure
+(offline, dirty tree, diverged) just runs your command on the existing code.
+Set `FLEET_NO_AUTOUPDATE=1` to opt out, or run `fleet update` to pull on demand.
+
+**Developer alternative** — a plain clone you control (no `~/.local/share` indirection):
+
+```bash
+git clone https://github.com/dfeirstein/fleet.git
+cd fleet && ./install.sh        # same installer, run from the clone
+```
+
+- **`fleet doctor`** — diagnose an install (cmux reachable? PATH? skill? daemon?
+  install mode — checkout path, branch, ahead/behind `origin/main`, autoupdate).
+- **`fleet update`** — explicit ff-only pull of `main` + `npm ci` when the lockfile
+  moved; prints the CHANGELOG delta and restarts the daemon if it's running.
+- **`fleet setup`** — re-link after a manual `git pull` (idempotent).
 - **`fleet setup --hotkey`** — also bind **⌘⇧Y** in your `cmux.json` to spawn a
   sibling Captain (`fleet captain --split`) in a split pane of the focused
   workspace. Merges JSONC-safely (backs up first, preserves your other keys, idempotent)
