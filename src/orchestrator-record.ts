@@ -18,6 +18,11 @@ export interface OrchestratorRecord {
   surfaceId: string;
   workspaceRef: string;
   declaredAt: string;
+  /** The Captain's resolved Claude session id, when known. Stamped best-effort:
+   *  unknown at first spawn (the session hasn't run), resolvable from the durable
+   *  map on a later `--resume`. Lets resume target `claude --resume <id>` instead
+   *  of the fork-prone `--continue` (#36). */
+  sessionId?: string;
 }
 
 /** The default session when FLEET_SESSION is unset — the base Captain. */
