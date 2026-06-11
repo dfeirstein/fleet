@@ -20,6 +20,14 @@ export function send(idOrLabel: string, text: string, withEnter = true): void {
   try {
     // Reliable submit into the worker's Claude TUI (handles paste-collapse).
     const result = submitToClaude(t, text);
+    if (result === "not-ready") {
+      // The TUI never reached its input prompt (still booting / on the splash),
+      // so NOTHING was typed (issue #38). Revert-on-throw restores the dispatch
+      // stamp; a blind "sent" here would lie about a steer the boot screen ate.
+      throw new Error(
+        `${agent.label}'s worker TUI is not ready — steer NOT sent; check with \`fleet read ${agent.agentId}\` and re-send once it is at its input prompt`,
+      );
+    }
     if (result === "failed") {
       // Positive observation: the text never left the input box (issue #30).
       throw new Error(
