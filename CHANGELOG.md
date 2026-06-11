@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **`install.sh` + self-updating `bin/fleet`** (closes #43): one curl-pipe-able installer (clones to `~/.local/share/fleet` or ff-pulls an existing checkout, `npm ci`, symlinks `fleet` + skill — backing up a pre-existing real skill dir to a timestamped `.bak` — then `fleet doctor`; idempotent, test-hookable via `FLEET_REPO`/`FLEET_BRANCH`/`FLEET_INSTALL_DIR`). `bin/fleet` gains a best-effort bash auto-update layer (the only pre-tsx hook): at most once/24h via a `~/.fleet/autoupdate-stamp`, only on a clean `main`, ff-only, bounded fetch (`GIT_HTTP_LOW_SPEED_*`), `npm ci` only when the lockfile moved, notices to stderr, `FLEET_NO_AUTOUPDATE=1` opt-out — any failure degrades to running the command on existing code. New `fleet update` (explicit foreground pull: refuses on dirty/non-main, prints the CHANGELOG section-header delta, restarts the daemon if running) and a pure decision core `src/autoupdate.ts` (throttle/eligibility/lockfile-moved, `node:test` coverage) shared with `fleet update`. `fleet doctor` adds an install-mode report (checkout path, branch + short sha, ahead/behind `origin/main`, autoupdate on/off). README leads with the curl one-liner, manual clone kept as the developer path. (#43)
+
 ## 2026-06-11
 
 ### Added

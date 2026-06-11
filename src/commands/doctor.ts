@@ -1,8 +1,10 @@
 // `fleet doctor` — diagnose an install: prereqs, cmux reachability, PATH, skill,
 // orchestrator, daemon. Prints the fix for anything broken.
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { existsSync, statSync } from "node:fs";
+import { currentBranch, aheadBehind, headSha, shortSha } from "../git.js";
 import {
   cmux,
   sidebarSnapshotSupported,
@@ -55,6 +57,28 @@ export function doctor(): void {
   // skill
   if (existsSync(join(home, ".claude", "skills", "fleet"))) ok("fleet skill installed");
   else bad("fleet skill not installed", "run: fleet setup");
+
+  // install mode (the self-updating checkout: where, which branch, how current)
+  const checkout = fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
+  info("checkout", checkout);
+  const branch = currentBranch(checkout);
+  const sha = headSha(checkout);
+  const counts = aheadBehind(checkout, "origin/main");
+  const tracking =
+    counts === undefined
+      ? "ahead/behind origin/main unknown (no fetch yet?)"
+      : counts.behind === 0 && counts.ahead === 0
+        ? "in sync with origin/main"
+        : `${counts.behind} behind / ${counts.ahead} ahead of origin/main`;
+  if (branch === "main") info(`branch main @ ${shortSha(sha)}`, tracking);
+  else info(`branch ${branch} @ ${shortSha(sha)}`, `${tracking} · auto-update is off on non-main branches`);
+  if (process.env.FLEET_NO_AUTOUPDATE === "1") {
+    info("auto-update disabled", "FLEET_NO_AUTOUPDATE=1 — run `fleet update` to pull manually");
+  } else if (branch === "main") {
+    info("auto-update enabled", "clean main tracks origin once/24h · `fleet update` to pull now");
+  } else {
+    info("auto-update dormant", "only runs on clean main · `fleet update` to pull manually");
+  }
 
   // cmux durable session map (restart-proof fleets: warm map + resume --apply)
   const hsPath = hookSessionsPath();
