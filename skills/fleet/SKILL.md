@@ -188,6 +188,15 @@ The warnings the community paid for, baked in:
   poisons the worker's context — a focused `npm test -- <file>` beats the whole
   suite.
 
+The spawn-side sibling is `fleet spawn --done '<check>' [--max N]`: it attaches
+the same stop condition to a worker you're already spawning, but stays
+fire-and-forget — the daemon runs the check on the worker's idle and
+re-dispatches the **same** worker (continued context) on failure, where
+`fleet objective` blocks and re-spawns a **fresh** worker each attempt. Reach for
+`--done` when you want one worker to keep its context across retries; reach for
+`objective` when a clean-slate attempt each iteration is better (or you want the
+call to block until done). Same fast/terse-check and `--max` discipline applies.
+
 ## Browser self-verify for UI tasks (paste into worker briefs)
 
 Workers are plain Claude Code sessions with bash, and cmux auto-sets

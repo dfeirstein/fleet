@@ -27,6 +27,11 @@ export interface DaemonMemory {
   /** workspace → last-applied sidebar paint fingerprint (color|description),
    *  so the state-lamp sync only writes on CHANGE, never per-beat repaints. */
   sidebarPaint: Record<string, string>;
+  /** agentId → `--done` loop bookkeeping for the CURRENT turn: which dispatch we
+   *  observed, whether we saw the worker active since, and whether we already
+   *  ran the check this turn (dedup so the check fires once per idle transition,
+   *  not every beat). Reset when lastDispatchAt changes (a new turn). */
+  doneLoop: Record<string, { dispatchAt: string; sawActive: boolean; checked: boolean }>;
 }
 
 export function newMemory(): DaemonMemory {
@@ -38,6 +43,7 @@ export function newMemory(): DaemonMemory {
     cpuHighBeats: {},
     lastResourceAlert: {},
     sidebarPaint: {},
+    doneLoop: {},
   };
 }
 

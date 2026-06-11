@@ -48,6 +48,12 @@ export interface SpawnOptions {
   /** Open a companion browser pane in the worker's workspace at spawn (url, or
    *  true for about:blank) and record its surface id for Captain screenshots. */
   withBrowser?: string | true;
+  /** Stop condition (`--done '<check>'`): the daemon runs this in the worker's
+   *  dir on stable-idle — pass auto-attaches proof, fail re-dispatches with the
+   *  output (bounded by doneMaxLoops). Needs the daemon running. */
+  doneCheck?: string;
+  /** Max re-dispatches for `--done` (default 3); exhaustion escalates loudly. */
+  doneMaxLoops?: number;
 }
 
 export const SPAWN_DEFAULTS = {
@@ -339,6 +345,18 @@ export function spawn(opts: SpawnOptions): Agent {
     // sidebar group (grouped spawns above join a workspace already in it).
     // Best-effort + capability-gated — never blocks a spawn.
     ensureWorkerGrouped(sessionId(), ws.workspaceId);
+  }
+
+  // Stop condition (--done): record the check + loop bounds on the agent so the
+  // daemon drives it on stable-idle (run check → pass attaches proof, fail
+  // re-dispatches, exhausted escalates). loopCount starts at 0 (spawn is the
+  // first attempt; --done bounds the RE-dispatches). One patch site, both
+  // placement branches above already upserted the agent.
+  if (opts.doneCheck) {
+    agent.doneCheck = opts.doneCheck;
+    agent.doneMaxLoops = opts.doneMaxLoops ?? 3;
+    agent.doneLoopCount = 0;
+    patch(agentId, { doneCheck: agent.doneCheck, doneMaxLoops: agent.doneMaxLoops, doneLoopCount: 0 });
   }
 
   // Companion browser pane (--with-browser). Opened AFTER the terminal surface
