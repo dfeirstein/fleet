@@ -10,6 +10,7 @@ import { snapshot, renderTable } from "./commands/status.js";
 import { kill, killAll, reviewBranches } from "./commands/kill.js";
 import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
 import { resume } from "./commands/resume.js";
+import { gc, type GcItemKind } from "./commands/gc.js";
 import { orchestrate, captainSplit } from "./commands/orchestrate.js";
 import { setup } from "./commands/setup.js";
 import { doctor } from "./commands/doctor.js";
@@ -194,6 +195,16 @@ Commands:
                                              for each restorable worker — with
                                              --apply, respawns them in fresh
                                              workspaces with full context)
+  gc [--apply]                               Sweep dead-session residue from
+                                             ~/.fleet (registry/state/capture/
+                                             daemon-state for sessions with no
+                                             live Captain AND no live worker).
+                                             Lists by default; --apply removes.
+                                             Fails closed: anything unverifiable
+                                             (cmux unreachable) is kept. Never
+                                             touches outcomes logs, briefs,
+                                             browser-states, worktrees, or shared
+                                             daemon files
   watch [--interval N] [--timeout N]         Poll until the fleet is idle;
                                              prints transitions + sidebar dash
         [--no-until-idle]                    Keep watching (don't exit on idle)
@@ -654,6 +665,33 @@ async function main(): Promise<void> {
         console.log(`re-run \`fleet resume --apply\` to respawn the resumable worker(s) above`);
       }
       console.log(renderTable(rows));
+      break;
+    }
+    case "gc": {
+      const { apply, reachable, plans, removed } = gc({ apply: flags.apply === true });
+      const remove = plans.filter((p) => p.action === "remove");
+      const keep = plans.filter((p) => p.action === "keep");
+      if (!reachable) {
+        console.log("⚠ cmux unreachable — every session is unverifiable; nothing will be removed (fail closed)");
+      }
+      const kindLabel: Record<GcItemKind, string> = {
+        registry: "registry",
+        state: "state",
+        "capture-dir": "capture dir",
+        "daemon-state": "daemon state",
+        "daemon-state-tmp": "daemon state .tmp",
+      };
+      for (const p of keep) console.log(`• ${p.session} — keep: ${p.reason}`);
+      if (!remove.length) {
+        console.log(remove.length === plans.length ? "" : "nothing to remove — no dead sessions");
+      }
+      for (const p of remove) {
+        const verb = apply ? "removed" : "would remove";
+        console.log(`☠ ${p.session} — ${p.reason} (${verb} ${p.items.length} item(s)):`);
+        for (const it of p.items) console.log(`    ${kindLabel[it.kind]}: ${it.path}`);
+      }
+      if (apply) console.log(`removed ${removed.length} path(s) across ${remove.length} dead session(s)`);
+      else if (remove.length) console.log(`re-run \`fleet gc --apply\` to remove the ${remove.length} dead session(s) above`);
       break;
     }
     case "watch": {

@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **`fleet gc [--apply]`** — sweep dead-session residue out of `~/.fleet` (closes #40, the manual 2026-06-11 cleanup gap): lists by default, removes with `--apply`, the registry/`.state.json`/capture-dir/daemon-`state-<s>.json` of every session with no live Captain AND no live worker. New pure decision core `src/commands/gc.ts` (`planGc`, `node:test` coverage: dead session, live Captain, live worker, unverifiable, mixed). Liveness reuses the established checks (`surfaceExists` for the Captain, `workspaceExists` per worker) and **fails closed** — when cmux is unreachable every check is "unverifiable" so nothing is removed. Never enumerates `*.outcomes.jsonl`, `briefs/`, `browser-states/`, `worktrees/`, shared daemon files, or orchestrator records/prompts as eligible. (#40)
+
 ## 2026-06-11
 
 ### Added
