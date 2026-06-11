@@ -54,7 +54,11 @@ function readRecord(path: string): OrchestratorRecord | undefined {
 /** Persist a record to its own per-session path. Used by the daemon self-heal
  *  to re-stamp a corrected surfaceId after an in-pane relaunch (issue #39); the
  *  record's own `session` selects the path so a legacy-singleton record gets a
- *  proper per-session file written. */
+ *  proper per-session file written.
+ *  NOTE: the orchestrator record now has TWO writers — this self-heal path and
+ *  the captain declare/resume path (`commands/orchestrate.ts`) — both writing the
+ *  same per-session file with last-writer-wins (no locking; writes are whole-file
+ *  and rare, and a resume always supersedes a heal of the surface it just changed). */
 export function writeOrchestrator(rec: OrchestratorRecord): void {
   writeFileSync(orchestratorPath(rec.session), JSON.stringify(rec, null, 2));
 }

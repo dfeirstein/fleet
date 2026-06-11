@@ -65,24 +65,53 @@ export function liveCaptains(): OrchestratorRecord[] {
 
 /** Distinct LIVE surfaces in a workspace, from the durable session map, minus
  *  any surface already owned by another Captain record (`exclude`) — so a
- *  quadrant sibling's pane is never a re-match candidate. */
+ *  quadrant sibling's pane is never a re-match candidate. `surfaceLive` is the
+ *  liveness probe (injectable for tests). */
 function liveCandidateSurfaces(
   map: DurableSessionMap | undefined,
   workspaceId: string,
   exclude: Set<string>,
+  surfaceLive: (t: { workspace: string; surface: string }) => boolean,
 ): string[] {
   if (!map) return [];
   const out = new Set<string>();
   for (const s of map.sessions) {
     if (s.workspaceId !== workspaceId || !s.surfaceId) continue;
     if (exclude.has(s.surfaceId)) continue;
-    if (surfaceExists({ workspace: workspaceId, surface: s.surfaceId })) out.add(s.surfaceId);
+    if (surfaceLive({ workspace: workspaceId, surface: s.surfaceId })) out.add(s.surfaceId);
   }
   return [...out];
 }
 
 /** After ≥2 consecutive unresolvable beats a Captain gets ONE loud warning. */
 const SELFHEAL_WARN_BEATS = 2;
+
+/** The impure edges of the self-heal pass, injectable so the orchestration
+ *  (sibling exclusion, candidate build, warn-once / re-arm counter) can be
+ *  tested without cmux or the real filesystem. Production wires the live ones. */
+export interface ReconcileDeps {
+  loadRecords: () => OrchestratorRecord[];
+  readMap: () => DurableSessionMap | undefined;
+  surfaceExists: (t: { workspace: string; surface: string }) => boolean;
+  workspaceExists: (workspace: string) => boolean;
+  writeRecord: (rec: OrchestratorRecord) => void;
+  /** Escalate ONE unresolvable warning for a Captain (the daemon notify path). */
+  escalate: (o: OrchestratorRecord, text: string) => void;
+}
+
+function liveReconcileDeps(settings: SharedSettings): ReconcileDeps {
+  return {
+    loadRecords: () => loadAllOrchestrators().filter((o) => o.workspaceId && o.surfaceId),
+    readMap: () => readHookSessions(),
+    surfaceExists,
+    workspaceExists,
+    writeRecord: writeOrchestrator,
+    escalate: (o, text) => {
+      const delivery = routeMessage(configForCaptain(o, settings), text, true);
+      console.log(`[daemon] ${delivery} (self-heal unresolved): ${text}`);
+    },
+  };
+}
 
 /**
  * Self-heal pass over every Captain record (issue #39). Returns the set still
@@ -96,23 +125,24 @@ const SELFHEAL_WARN_BEATS = 2;
 export function reconcileLiveCaptains(
   unresolved: Map<string, number>,
   settings: SharedSettings,
+  deps: ReconcileDeps = liveReconcileDeps(settings),
 ): OrchestratorRecord[] {
-  const records = loadAllOrchestrators().filter((o) => o.workspaceId && o.surfaceId);
-  const map = readHookSessions();
+  const records = deps.loadRecords();
+  const map = deps.readMap();
   const live: OrchestratorRecord[] = [];
   const seen = new Set<string>();
 
   for (const o of records) {
     seen.add(o.session);
-    const surfaceLive = surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId });
-    const wsExists = surfaceLive || workspaceExists(o.workspaceId);
+    const surfaceLive = deps.surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId });
+    const wsExists = surfaceLive || deps.workspaceExists(o.workspaceId);
     // Surfaces other live-or-not records already claim in this workspace — never
     // re-stamp onto a sibling Captain's pane.
     const owned = new Set(
       records.filter((r) => r !== o && r.workspaceId === o.workspaceId).map((r) => r.surfaceId),
     );
     const candidateSurfaces =
-      surfaceLive || !wsExists ? [] : liveCandidateSurfaces(map, o.workspaceId, owned);
+      surfaceLive || !wsExists ? [] : liveCandidateSurfaces(map, o.workspaceId, owned, deps.surfaceExists);
     const decision = decideSelfHeal({ surfaceLive, workspaceExists: wsExists, candidateSurfaces });
 
     switch (decision.action) {
@@ -124,7 +154,7 @@ export function reconcileLiveCaptains(
         unresolved.delete(o.session);
         const healed: OrchestratorRecord = { ...o, surfaceId: decision.surfaceId };
         try {
-          writeOrchestrator(healed);
+          deps.writeRecord(healed);
           console.log(
             `[daemon] self-heal: re-stamped ${o.name} surface ${o.surfaceId.slice(0, 8)} → ${decision.surfaceId.slice(0, 8)} (in-pane relaunch)`,
           );
@@ -139,8 +169,7 @@ export function reconcileLiveCaptains(
         unresolved.set(o.session, n);
         if (n === SELFHEAL_WARN_BEATS) {
           const text = `Captain ${o.name} surface ${o.surfaceId.slice(0, 8)} is gone and couldn't be re-matched (${decision.reason}) — supervision stopped. Re-declare with \`fleet captain\` or re-stamp its record.`;
-          const delivery = routeMessage(configForCaptain(o, settings), text, true);
-          console.log(`[daemon] ${delivery} (self-heal unresolved): ${text}`);
+          deps.escalate(o, text);
         }
         break; // not watched
       }
