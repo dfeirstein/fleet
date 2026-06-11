@@ -217,12 +217,26 @@ You can also state boundaries in the worker's prompt ("do not deploy", "don't
 push") — auto mode's classifier enforces them.
 
 **Answering a worker's PERMISSION prompt (`fleet reply`, or typing into its
-pane) is a human-authority action.** Deny freely; reply `allow` only when the
-user's request or the brief you wrote already authorizes that exact action.
-NEVER reply `always`, `all`, or `bypass` unless the user explicitly granted a
-standing approval — those outlive the prompt. When in doubt, surface the
-prompt to the user and wait (past the 120s window it falls back to the
-worker's TUI, which is fine).
+pane) carries the user's authority — treat it as a verification step, not a
+formality:**
+
+- **Already in scope** — the user's request, the brief you wrote, or a
+  pre-agreed approval envelope covers the exact action → `allow`, keep moving.
+- **Destructive or critical** (deletes, force-push, deploys, schema/data
+  migrations, sending data out) → neither rubber-stamp nor stall: **verify it
+  first**. `fleet read` the worker for context; confirm the exact target
+  (path, branch, env, origin) is the one the task calls for and the action is
+  the correct next step toward the goal. Verified correct and in scope →
+  `allow`; wrong target, out of scope, or unverifiable → `deny` plus a
+  steering `fleet send`, or surface it to the user (inconclusive = deny).
+- **NEVER `always`, `all`, or `bypass`** — standing grants that outlive the
+  prompt — unless the user explicitly granted them.
+- **Unattended waves:** agree the approval envelope with the user UP FRONT
+  ("overnight I may approve dep installs and test-DB resets; all else queues
+  to the inbox") so in-scope approvals stay autonomous instead of stalling.
+
+Past the 120s window the prompt falls back to the worker's TUI — answer it
+with `fleet send`, same rules.
 
 ## Two layouts: separate workspaces vs a grid
 
