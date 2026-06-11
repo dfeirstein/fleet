@@ -15,9 +15,9 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, readdirSync, statSync, rmSync, readFileSync } from "node:fs";
-import { workspaceExists, surfaceExists, cmuxJson } from "../cmux.js";
+import { listSurfaces, listGridCells, cmuxJson, CmuxError } from "../cmux.js";
 import { handle, type Agent } from "../registry.js";
-import { loadAllOrchestrators } from "../orchestrator-record.js";
+import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-record.js";
 
 // ── The keep/remove decision (pure; node:test) ───────────────────────────────
 
@@ -147,21 +147,30 @@ export function discoverSessions(): string[] {
   return [...sessions].sort();
 }
 
+export interface RegistryRead {
+  agents: Agent[];
+  /** Registry file present but unparseable — we can't enumerate its workers, so
+   *  the session's liveness is indeterminate (must KEEP, never remove). An ABSENT
+   *  registry is not unreadable: a session legitimately has no workers. */
+  unreadable: boolean;
+}
+
 /** Read a session's registry agents directly (the registry module is env-keyed
  *  to ONE session; gc spans all of them, so it reads each file by path). */
-function loadAgents(session: string): Agent[] {
+function loadAgents(session: string): RegistryRead {
   const path = join(fleetDir(), `${session}.json`);
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) return { agents: [], unreadable: false };
   try {
     const reg = JSON.parse(readFileSync(path, "utf8")) as { agents?: Record<string, Agent> };
-    return Object.values(reg.agents ?? {});
+    return { agents: Object.values(reg.agents ?? {}), unreadable: false };
   } catch {
-    return [];
+    return { agents: [], unreadable: true };
   }
 }
 
-/** True if cmux answers at all — the gate for trusting an "absent" existence
- *  answer. When false, every liveness check is reported unverifiable. */
+/** True if cmux answers at all — a fast upfront gate. When false the whole sweep
+ *  short-circuits to keep-everything (see `gc`); per-check probes below still
+ *  fail closed if cmux dies MID-sweep after answering here. */
 function cmuxReachable(): boolean {
   try {
     cmuxJson(["rpc", "workspace.list"]);
@@ -171,20 +180,75 @@ function cmuxReachable(): boolean {
   }
 }
 
-function sessionLiveness(session: string, reachable: boolean): SessionLiveness {
-  const captainRec = loadAllOrchestrators().find((o) => o.session === session);
-  const captain: SessionLiveness["captain"] = !captainRec
-    ? "absent"
-    : !reachable
-      ? "unverifiable"
-      : captainRec.workspaceId &&
-          captainRec.surfaceId &&
-          surfaceExists({ workspace: captainRec.workspaceId, surface: captainRec.surfaceId })
-        ? "live"
-        : "absent";
-  const workers: Liveness[] = loadAgents(session).map((a) =>
-    !reachable ? "unverifiable" : workspaceExists(handle(a)) ? "live" : "dead",
-  );
+// ── Error-distinguishing existence checks (the fail-closed core) ──────────────
+// The swallow-to-false helpers in cmux.ts can't tell "gone" from "cmux errored",
+// so a transient error would read as dead and `--apply` would delete a LIVE
+// session. These return a THIRD state, "unknown", for any non-`not_found` failure
+// — which maps to `unverifiable` → KEEP.
+
+export type Existence = "present" | "absent" | "unknown";
+
+/** cmux tags a genuinely-gone workspace/surface with the machine code
+ *  `not_found` (verified live: a missing workspace exits non-zero with
+ *  `Error: not_found: Workspace not found`). Any OTHER failure — cmux crashed
+ *  mid-sweep, socket/parse error — is indeterminate and must NOT read as gone. */
+export function isGone(err: unknown): boolean {
+  return err instanceof CmuxError && /not_found/.test(`${err.stderr} ${err.message}`);
+}
+
+/** Worker liveness: its workspace is present / absent / indeterminate. */
+function workspacePresence(workspace: string): Existence {
+  try {
+    listSurfaces(workspace, { quietStderr: true });
+    return "present";
+  } catch (e) {
+    return isGone(e) ? "absent" : "unknown";
+  }
+}
+
+/** Captain liveness: its surface is present / absent / indeterminate. A reachable
+ *  workspace whose grid holds no matching surface is a clean "absent"; only a
+ *  non-`not_found` throw is "unknown". */
+function surfacePresence(workspace: string, surface: string): Existence {
+  try {
+    return listGridCells(workspace, { quietStderr: true }).some((c) => c.surfaceId === surface)
+      ? "present"
+      : "absent";
+  } catch (e) {
+    return isGone(e) ? "absent" : "unknown";
+  }
+}
+
+/** Injected liveness sources — real ones in `gc`, fakes in tests so the
+ *  Existence→Liveness mapping (the fail-closed heart) is unit-testable. */
+export interface LivenessProbes {
+  orchestrators: OrchestratorRecord[];
+  surface(workspace: string, surface: string): Existence;
+  workspace(workspace: string): Existence;
+  readRegistry(session: string): RegistryRead;
+}
+
+/** Map a session's raw signals to keep/remove liveness. Called ONLY when cmux
+ *  answered upfront; every per-check `unknown` (a probe that errored without a
+ *  `not_found`) becomes `unverifiable` so planGc keeps the session. */
+export function sessionLiveness(session: string, probes: LivenessProbes): SessionLiveness {
+  const rec = probes.orchestrators.find((o) => o.session === session);
+  let captain: SessionLiveness["captain"];
+  if (!rec) {
+    captain = "absent";
+  } else if (!rec.workspaceId || !rec.surfaceId) {
+    captain = "unverifiable"; // malformed record — can't confirm dead, so keep
+  } else {
+    const p = probes.surface(rec.workspaceId, rec.surfaceId);
+    captain = p === "present" ? "live" : p === "absent" ? "absent" : "unverifiable";
+  }
+  const read = probes.readRegistry(session);
+  const workers: Liveness[] = read.unreadable
+    ? ["unverifiable"] // registry exists but unparseable — indeterminate, keep
+    : read.agents.map((a) => {
+        const p = probes.workspace(handle(a));
+        return p === "present" ? "live" : p === "absent" ? "dead" : "unverifiable";
+      });
   return { session, captain, workers };
 }
 
@@ -209,7 +273,22 @@ function eligibleItems(session: string): GcItem[] {
 export function gc(opts: { apply?: boolean } = {}): GcResult {
   const apply = opts.apply === true;
   const reachable = cmuxReachable();
-  const decisions = planGc(discoverSessions().map((s) => sessionLiveness(s, reachable)));
+  const sessions = discoverSessions();
+  // cmux down → keep everything (nothing can be confirmed dead). Hoist the
+  // orchestrator records once (read per-session before — the nit).
+  const probes: LivenessProbes = {
+    orchestrators: loadAllOrchestrators(),
+    surface: surfacePresence,
+    workspace: workspacePresence,
+    readRegistry: loadAgents,
+  };
+  const decisions: GcDecision[] = reachable
+    ? planGc(sessions.map((s) => sessionLiveness(s, probes)))
+    : sessions.map((s) => ({
+        session: s,
+        action: "keep" as const,
+        reason: "kept (unverifiable — cmux unreachable)",
+      }));
   const removed: string[] = [];
   const plans: GcSessionPlan[] = decisions.map((d) => {
     const items = d.action === "remove" ? eligibleItems(d.session) : [];
