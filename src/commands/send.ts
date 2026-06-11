@@ -23,7 +23,7 @@ export function send(idOrLabel: string, text: string, withEnter = true): void {
     if (result === "failed") {
       // Positive observation: the text never left the input box (issue #30).
       throw new Error(
-        `the steer never left ${agent.label}'s input box — inspect with \`fleet read ${agent.agentId}\` and retry`,
+        `the steer never left ${agent.label}'s input box — it is still sitting there; inspect with \`fleet read ${agent.agentId}\`, clear the box in the pane, then re-send (a blind retry would double-paste)`,
       );
     }
     if (result === "unverified") {

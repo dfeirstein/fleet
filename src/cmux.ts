@@ -478,10 +478,10 @@ export function inputBoxRegion(screen: string): string {
  * in the input region. (Checking the input cleared is the only reliable signal;
  * the "paste again to expand" collapse indicator only covers one failure mode.)
  */
-/** Outcome of a TUI submit. "failed" is a POSITIVE observation — the text is
- *  still sitting in the input box after every nudge — so callers may treat the
- *  dispatch as not delivered. "unverified" means the screen could never be
- *  read; the submit most likely landed, so callers should warn, not revert. */
+/** Outcome of a TUI submit. "failed" is a POSITIVE observation — the final
+ *  post-nudge read saw the text still sitting in the input box — so callers may
+ *  treat the dispatch as not delivered. "unverified" means the deciding read
+ *  was unavailable; the submit most likely landed, so callers warn, not revert. */
 export type SubmitResult = "submitted" | "failed" | "unverified";
 
 export function submitToClaude(target: Target, text: string): SubmitResult {
@@ -504,21 +504,22 @@ export function submitToClaude(target: Target, text: string): SubmitResult {
     }
   };
 
-  let sawScreen = false;
   for (let i = 0; i < 6; i++) {
     sleepMs(450);
     const inBox = stillInBox();
     if (inBox === undefined) continue; // transient read failure — keep verifying
-    sawScreen = true;
     if (!inBox) return "submitted"; // left the input → submitted
     sendKey(target, "Enter"); // still in the input box → nudge again
   }
   // The last nudge may itself have landed — settle and look once more, so a
-  // slow submit isn't misreported as a failed dispatch.
+  // slow submit isn't misreported as a failed dispatch. Only this final read can
+  // verdict "failed": earlier in-box sightings precede a nudge that may have
+  // submitted, so without the deciding read the outcome is unverified, not failed
+  // ("failed" must stay a positive observation — undispatched is sticky).
   sleepMs(450);
   const finalInBox = stillInBox();
   if (finalInBox === false) return "submitted";
-  return finalInBox === true || sawScreen ? "failed" : "unverified";
+  return finalInBox === true ? "failed" : "unverified";
 }
 
 /** Close a workspace by handle. */
