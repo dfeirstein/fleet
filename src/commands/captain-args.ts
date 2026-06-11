@@ -24,6 +24,35 @@ export function unknownCaptainFlags(flagKeys: string[]): string[] {
   return flagKeys.filter((k) => !KNOWN_CAPTAIN_FLAGS.has(k));
 }
 
+/** The captain path's boolean flags — the ones that take no value (so a string
+ *  bound to one is a greedily-eaten positional, not an argument). The value
+ *  flags (`--model`, `--command`) are deliberately excluded. */
+export const CAPTAIN_BOOLEAN_FLAGS = ["resume", "split", "no-daemon", "close-origin", "print", "help", "h"];
+
+/**
+ * Normalize the greedy base parser for the captain path. The parser binds
+ * `--resume yoshi` as `resume:"yoshi"` with NO positional — so the flag-before-
+ * name form would slip past the no-name guard and spawn a stray "Captain" with
+ * resume silently dropped (the exact #36/#37 incident class). Reclaim any string
+ * captured by a boolean flag back as a positional name and flip the flag to true.
+ * Returns the resolved name and a cleaned flag map (value flags untouched).
+ */
+export function normalizeCaptainArgs(
+  flags: Record<string, string | boolean>,
+  positionals: string[],
+): { name: string; flags: Record<string, string | boolean> } {
+  const normalized: Record<string, string | boolean> = { ...flags };
+  const reclaimed: string[] = [];
+  for (const f of CAPTAIN_BOOLEAN_FLAGS) {
+    if (typeof normalized[f] === "string") {
+      reclaimed.push(normalized[f] as string);
+      normalized[f] = true;
+    }
+  }
+  const name = [...positionals, ...reclaimed].join(" ").trim();
+  return { name, flags: normalized };
+}
+
 export const CAPTAIN_HELP = `fleet captain|orchestrate [name] [options] — appoint/steer a Fleet Captain
 
   fleet captain <name>            Appoint a fresh Captain in a new badged workspace

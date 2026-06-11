@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   unknownCaptainFlags,
   noNameResumeError,
+  normalizeCaptainArgs,
   captainResumeArg,
   inPaneResumeRecipe,
 } from "./captain-args.js";
@@ -14,6 +15,42 @@ test("unknownCaptainFlags: known flags pass, unknown rejected", () => {
   // #37: an unknown flag (the kind that used to spawn a stray Captain) is flagged.
   assert.deepEqual(unknownCaptainFlags(["continue"]), ["continue"]);
   assert.deepEqual(unknownCaptainFlags(["resume", "bogus", "model"]), ["bogus"]);
+});
+
+test("normalizeCaptainArgs: flag-before-name `--resume yoshi` reclaims the name, resume stays boolean true", () => {
+  // The greedy parser would yield { resume: "yoshi" } with no positional — the
+  // exact #36/#37 hole (no-name guard bypassed → stray "Captain", resume dropped).
+  const { name, flags } = normalizeCaptainArgs({ resume: "yoshi" }, []);
+  assert.equal(name, "yoshi");
+  assert.equal(flags.resume, true);
+});
+
+test("normalizeCaptainArgs: name-before-flag and bare --resume are unchanged", () => {
+  assert.deepEqual(normalizeCaptainArgs({ resume: true }, ["yoshi"]), {
+    name: "yoshi",
+    flags: { resume: true },
+  });
+  // bare --resume, no name → empty name (the no-name guard fires downstream).
+  assert.equal(normalizeCaptainArgs({ resume: true }, []).name, "");
+});
+
+test("normalizeCaptainArgs: `--print --resume yoshi` resolves name + both booleans", () => {
+  const { name, flags } = normalizeCaptainArgs({ print: true, resume: "yoshi" }, []);
+  assert.equal(name, "yoshi");
+  assert.equal(flags.resume, true);
+  assert.equal(flags.print, true);
+});
+
+test("normalizeCaptainArgs: value flags (--model) are NOT reclaimed as a name", () => {
+  const { name, flags } = normalizeCaptainArgs({ resume: true, model: "claude-fable-5" }, []);
+  assert.equal(name, "");
+  assert.equal(flags.model, "claude-fable-5");
+});
+
+test("normalizeCaptainArgs: greedy --no-daemon yoshi reclaims the name and flips the flag", () => {
+  const { name, flags } = normalizeCaptainArgs({ "no-daemon": "yoshi" }, []);
+  assert.equal(name, "yoshi");
+  assert.equal(flags["no-daemon"], true);
 });
 
 test("noNameResumeError: never says to default; lists live captains with exact commands", () => {
