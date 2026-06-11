@@ -10,7 +10,8 @@ import { snapshot, renderTable } from "./commands/status.js";
 import { kill, killAll, reviewBranches } from "./commands/kill.js";
 import { watch, WATCH_DEFAULTS } from "./commands/watch.js";
 import { resume } from "./commands/resume.js";
-import { orchestrate, captainSplit } from "./commands/orchestrate.js";
+import { orchestrate, captainSplit, liveCaptains, captainResumeRecipe } from "./commands/orchestrate.js";
+import { unknownCaptainFlags, noNameResumeError, normalizeCaptainArgs, CAPTAIN_HELP } from "./commands/captain-args.js";
 import { setup } from "./commands/setup.js";
 import { update } from "./commands/update.js";
 import { doctor } from "./commands/doctor.js";
@@ -221,9 +222,13 @@ Commands:
                                              on clean main — FLEET_NO_AUTOUPDATE=1
                                              opts out)
   orchestrate|captain [name] [--resume]      Appoint a Fleet Captain — a badged
-        [--split] [--model M]                control-plane workspace you talk to
-                                             (--resume re-appoints an existing
-                                             Captain, keeping her conversation;
+        [--split] [--model M] [--print]      control-plane workspace you talk to
+                                             (--resume re-appoints an EXISTING
+                                             Captain by id, keeping her
+                                             conversation — needs an explicit
+                                             name, never defaults; --resume
+                                             --print emits the in-pane manual
+                                             relaunch command instead;
                                              --split adds a FRESH sibling Captain
                                              in a split pane of the focused
                                              workspace — up to a 2×2 quadrant;
@@ -362,14 +367,41 @@ async function main(): Promise<void> {
     }
     case "orchestrate":
     case "captain": {
-      if (flags.split === true) {
-        const rec = captainSplit({ daemon: flags["no-daemon"] !== true, command: str(flags.command), closeOrigin: flags["close-origin"] === true, model: str(flags.model) });
+      // The base parser is greedy — `--resume yoshi` binds yoshi as --resume's
+      // value with NO positional. Reclaim it as the name first, so the no-name
+      // guard below can't be slipped by flag-before-name ordering (#36/#37 class).
+      const { name, flags: cflags } = normalizeCaptainArgs(flags, positionals);
+      // #37: --help/-h prints usage and exits; any unknown flag errors with usage
+      // instead of spawning a stray Captain (the side effect is a workspace +
+      // registry record + daemon-watched session — too costly to do on a typo).
+      if (cflags.help === true || rest.includes("-h")) {
+        console.log(CAPTAIN_HELP);
+        break;
+      }
+      const unknown = unknownCaptainFlags(Object.keys(cflags));
+      if (unknown.length) {
+        return fail(`unknown flag(s) for ${cmd}: ${unknown.map((f) => `--${f}`).join(", ")}\n\n${CAPTAIN_HELP}`);
+      }
+      if (cflags.split === true) {
+        const rec = captainSplit({ daemon: cflags["no-daemon"] !== true, command: str(cflags.command), closeOrigin: cflags["close-origin"] === true, model: str(cflags.model) });
         console.log(`⚓ Sibling Captain "${rec.name}" is live in a new pane of ${rec.workspaceRef} (fleet session "${rec.session}").`);
         console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);
         break;
       }
-      const name = positionals.join(" ").trim() || "Captain";
-      const rec = orchestrate(name, { daemon: flags["no-daemon"] !== true, resume: flags.resume === true, model: str(flags.model) });
+      // #36: a bare --resume must NOT default to "Captain" (that forked a live
+      // Captain's conversation). Error and list the live captains to resume.
+      if (cflags.resume === true && !name) {
+        return fail(noNameResumeError(liveCaptains()));
+      }
+      // #36 bonus: --print emits the in-pane manual relaunch recipe, touching no
+      // cmux state (the Ctrl-C-and-relaunch path that worked in the incident).
+      if (cflags.print === true) {
+        if (cflags.resume !== true) return fail("--print applies only with --resume");
+        if (!name) return fail("--print requires an explicit Captain <name>");
+        console.log(captainResumeRecipe(name));
+        break;
+      }
+      const rec = orchestrate(name || "Captain", { daemon: cflags["no-daemon"] !== true, resume: cflags.resume === true, model: str(cflags.model) });
       console.log(`⚓ Fleet Captain "${rec.name}" is live in ${rec.workspaceRef} (fleet session "${rec.session}").`);
       console.log(`Switch to the "⚓ ${rec.name}" workspace in cmux and talk to the Captain.`);
       console.log(`Its workers run in session "${rec.session}" — inspect with: FLEET_SESSION=${rec.session} fleet status`);

@@ -6,6 +6,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { existsSync } from "node:fs";
+import { classifyScreenReadiness, type ScreenReadiness } from "./events.js";
 
 /** Resolve the cmux binary: explicit override → bundled path → PATH → app default. */
 function resolveBinary(): string {
@@ -470,6 +471,31 @@ export function inputBoxRegion(screen: string): string {
 }
 
 /**
+ * Block until a worker's Claude TUI is live at its input prompt, so a steer is
+ * never typed into the boot splash — which swallows the bracketed paste and then
+ * false-positives as "submitted", because the cleared-input probe can't tell
+ * "text left the box" from "text never entered it" (issue #38). Polls read-screen
+ * and classifies each frame with `classifyScreenReadiness` — the SAME readiness
+ * signal the spawn path waits on. Returns the final classification: "ready" as
+ * soon as a ready marker appears, else the last non-ready reading when the budget
+ * (matching spawn's 30s) runs out.
+ */
+export function waitForReady(target: Target, timeoutMs = 30000): ScreenReadiness {
+  const deadline = Date.now() + timeoutMs;
+  let last: ScreenReadiness = "unreadable";
+  while (Date.now() < deadline) {
+    try {
+      last = classifyScreenReadiness(readScreen(target, 30));
+      if (last === "ready") return "ready";
+    } catch {
+      last = "unreadable"; // terminal not live yet — keep polling
+    }
+    sleepMs(400);
+  }
+  return last;
+}
+
+/**
  * Submit a prompt into a Claude Code TUI reliably. cmux `send` arrives as a
  * bracketed paste; an Enter sent too soon lands INSIDE the paste (becoming a
  * newline in the input) instead of submitting, so messages just pile up in the
@@ -481,10 +507,19 @@ export function inputBoxRegion(screen: string): string {
 /** Outcome of a TUI submit. "failed" is a POSITIVE observation — the final
  *  post-nudge read saw the text still sitting in the input box — so callers may
  *  treat the dispatch as not delivered. "unverified" means the deciding read
- *  was unavailable; the submit most likely landed, so callers warn, not revert. */
-export type SubmitResult = "submitted" | "failed" | "unverified";
+ *  was unavailable; the submit most likely landed, so callers warn, not revert.
+ *  "not-ready" means the TUI never reached its input prompt within the budget, so
+ *  NOTHING was typed (issue #38): a positive "do not believe it landed" — callers
+ *  revert + warn, like "failed". */
+export type SubmitResult = "submitted" | "failed" | "unverified" | "not-ready";
 
-export function submitToClaude(target: Target, text: string): SubmitResult {
+export function submitToClaude(target: Target, text: string, readyTimeoutMs = 30000): SubmitResult {
+  // Gate on TUI readiness BEFORE typing: a paste into a still-booting splash is
+  // silently swallowed, and the cleared-input probe below can't distinguish that
+  // from a clean submit (issue #38). If the prompt never appears within the
+  // budget, type nothing and report "not-ready" so the caller warns + reverts.
+  if (waitForReady(target, readyTimeoutMs) !== "ready") return "not-ready";
+
   sendText(target, text);
   sleepMs(450); // let the bracketed paste settle before Enter
   sendKey(target, "Enter");
