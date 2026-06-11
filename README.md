@@ -235,3 +235,12 @@ Built in phases (`git log`): 0–1 core loop · 2 monitoring + reliability ·
 3 deterministic completion · 4 grid swarm · 5 resume + daemon · 6 proof-of-work
 gate · 7 event-driven reactor · 8 browser rail · 9 mission-control + restart-proof
 fleets · 10 RPC steering.
+
+## Contributing
+
+Issues and PRs welcome. The bar: surgical scope, a CHANGELOG entry under
+**Unreleased**, and verification evidence (commands + results) in the PR body —
+open for review, don't self-merge. Operational-review issues follow the format of
+[#30](https://github.com/dfeirstein/fleet/issues/30). Security problems go to the
+maintainer privately, not a public issue. Full process in
+**[CONTRIBUTING.md](CONTRIBUTING.md)**.

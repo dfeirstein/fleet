@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/dfeirstein/fleet/blob/main/CONTRIBUTING.md#security-issues
+    about: Don't file security problems publicly — email the maintainer privately.

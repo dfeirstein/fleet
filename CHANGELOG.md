@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **Contributor process** (first external issue/PR cycle, #30/#31): root `CONTRIBUTING.md` (dev setup — `npm ci`, no build step, `npm run typecheck`, `npm test`; PR rules distilled from how #31 was handled — surgical scope, CHANGELOG-under-Unreleased, verification evidence as commands+results, open-for-review ≠ merge, judge ≠ generator; issue + security guidance), `.github/` templates (`PULL_REQUEST_TEMPLATE.md`, `ISSUE_TEMPLATE/{bug_report,operational_review,config}` — operational_review modeled on #30), `CODEOWNERS` (`* @dfeirstein`), a Node 24 `ci.yml` (`npm ci` → typecheck → test, job named `ci` for a required status check), and a README Contributing section. The process PR follows the process. (#PR)
+
 ### Fixed
 - **`npm run typecheck` reproducible from a clean install**: `@types/node` is now a declared devDep (`^25.9.2`) — tsconfig's `"types": ["node"]` previously resolved only where the package happened to be installed ad-hoc, so a fresh `npm ci` failed typecheck with TS2688. (#29)
 
