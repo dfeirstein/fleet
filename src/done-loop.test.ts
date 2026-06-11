@@ -45,6 +45,19 @@ test("already checked this turn → does not re-run (dedup by dispatch)", () => 
   assert.equal(shouldRunDoneCheck(gate({ alreadyChecked: true })), false);
 });
 
+// Stall-prevention contract for the daemon's redispatch catch path: a failed
+// send() leaves the worker idle with lastDispatchAt UNADVANCED, so the only way
+// the next beat can retry (rather than stall with both safety nets off — the
+// done-no-proof nudge is suppressed for --done workers) is to clear the
+// alreadyChecked flag. With it cleared, the same still-idle worker is runnable
+// again; left set, it is permanently skipped.
+test("failed re-dispatch must reset alreadyChecked or the loop stalls forever", () => {
+  const afterFailedSend = gate({ alreadyChecked: false }); // catch sets st.checked = false
+  assert.equal(shouldRunDoneCheck(afterFailedSend), true, "reset → next beat retries");
+  const ifNotReset = gate({ alreadyChecked: true }); // the bug: flag left true
+  assert.equal(shouldRunDoneCheck(ifNotReset), false, "not reset → stalls (the failure mode)");
+});
+
 test("idle but never seen active and grace not elapsed → wait (startup blip guard)", () => {
   assert.equal(shouldRunDoneCheck(gate({ sawActive: false, graceElapsed: false })), false);
 });

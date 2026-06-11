@@ -179,7 +179,17 @@ export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now:
         patch(a.agentId, { doneLoopCount: attempt });
         console.log(`[daemon] --done check failed for ${a.label} — re-dispatched (${attempt}/${maxLoops})`);
       } catch (e) {
-        console.error(`[daemon] --done re-dispatch failed for ${a.label}: ${(e as Error).message}`);
+        // A send() throw is a transient steering hiccup (cmux/PTY), not a failed
+        // WORK attempt: revert the per-turn check flag so the NEXT beat retries
+        // the re-dispatch instead of stalling idle forever. Without this, checked
+        // stays true with lastDispatchAt unadvanced → shouldRunDoneCheck never
+        // fires again, and the done-no-proof nudge is suppressed for --done
+        // workers, so BOTH safety nets go silent. It doesn't consume a --max
+        // budget (doneLoopCount only bumps on a successful send), and the retry
+        // is naturally bounded — an unreachable worker classifies dead/non-idle
+        // and drops out of the idle gate.
+        st.checked = false;
+        console.error(`[daemon] --done re-dispatch failed for ${a.label} (retry next beat): ${(e as Error).message}`);
       }
       return;
     }
