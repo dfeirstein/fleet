@@ -14,15 +14,24 @@ afterEach(() => {
   delete process.env.FLEET_SESSION;
 });
 
-test("launch line exports FLEET_SESSION + FLEET_AGENT_ID ahead of claude (spawn shape: no task)", () => {
+test("launch line exports the autocompact backstop + FLEET_SESSION + FLEET_AGENT_ID ahead of claude (spawn shape: no task)", () => {
   const line = buildWorkerLaunchCommand("abcd1234", "opus", "", false, "auto");
-  assert.equal(line, "FLEET_SESSION='test-sess' FLEET_AGENT_ID=abcd1234 claude --permission-mode auto --model opus");
+  assert.match(
+    line,
+    /^CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=\d+ FLEET_SESSION='test-sess' FLEET_AGENT_ID=abcd1234 claude --permission-mode auto --model opus$/,
+  );
+});
+
+test("launch line carries CLAUDE_AUTOCOMPACT_PCT_OVERRIDE (process-env backstop the daemon can't set for the pane)", () => {
+  const line = buildWorkerLaunchCommand("abcd1234", "opus", "", false, "auto");
+  // First token: the env var only takes effect when set at claude launch.
+  assert.match(line, /^CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=\d+ /);
 });
 
 test("grid shape: task + proof instruction baked into the launch line, single-quoted", () => {
   const task = `do the thing\n\n${proofInstruction("abcd1234")}`;
   const line = buildWorkerLaunchCommand("abcd1234", "opus", task, true, "yolo");
-  assert.ok(line.startsWith("FLEET_SESSION='test-sess' FLEET_AGENT_ID=abcd1234 claude --dangerously-skip-permissions"));
+  assert.match(line, /^CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=\d+ FLEET_SESSION='test-sess' FLEET_AGENT_ID=abcd1234 claude --dangerously-skip-permissions/);
   assert.match(line, /fleet done abcd1234 --proof/);
   // The instruction's embedded apostrophes survive POSIX single-quoting:
   // ' becomes '\'' inside the quoted task positional.

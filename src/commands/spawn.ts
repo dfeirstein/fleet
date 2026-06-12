@@ -21,6 +21,7 @@ import {
   type Target,
 } from "../cmux.js";
 import { upsert, remove, patch, listAgents, sessionId, type Agent } from "../registry.js";
+import { loadSharedSettings, DAEMON_DEFAULTS } from "../daemon/config.js";
 import { ensureWorkerGrouped } from "../sidebar.js";
 import { appendOutcome } from "../outcomes.js";
 import { refreshCapture } from "../capture-log.js";
@@ -161,6 +162,16 @@ export function proofInstruction(agentId: string): string {
 }
 
 /**
+ * Context-discipline clause appended to every dispatched worker brief: tells the
+ * worker to self-compact at the caution threshold and that the daemon may also
+ * issue `/compact` while it's idle (so it isn't surprised). The thresholds match
+ * the daemon's defaults (50/66) — see .claude-docs/context-guard.md.
+ */
+export function contextDisciplineClause(): string {
+  return `Context discipline: your statusline shows context %. At ~50% used, finish the current step, persist anything durable, then run \`/compact\`; always compact before 66%. The fleet daemon may also issue \`/compact\` to you while idle — that is expected.`;
+}
+
+/**
  * The full launch line for a worker: FLEET_SESSION + FLEET_AGENT_ID env exports
  * ahead of the claude command, so a bare `fleet done <agentId> --proof …` run
  * INSIDE the worker resolves this fleet's registry (sessionId() prefers
@@ -174,7 +185,17 @@ export function buildWorkerLaunchCommand(
   autostart: boolean,
   mode: PermMode,
 ): string {
-  const envPrefix = `FLEET_SESSION=${shellSingleQuote(sessionId())} FLEET_AGENT_ID=${agentId} `;
+  // CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is a process-env backstop: the daemon drives
+  // /compact at the caution threshold, but the env var only takes effect when set
+  // at claude launch (shell profiles don't reliably cover cmux panes), so the
+  // spawn path carries it. Sourced from the same daemon config knob so it stays
+  // configurable; sits between caution and the hard ceiling (see context-guard.md).
+  // Coerce to a sane integer percent — a malformed config value (string, shell
+  // metachar, out-of-range) must NEVER be interpolated raw into every launch
+  // line (it would inject or silently break all spawns); fall back to the default.
+  const n = Number(loadSharedSettings().contextBackstopPct);
+  const backstop = Number.isInteger(n) && n > 0 && n <= 100 ? n : DAEMON_DEFAULTS.contextBackstopPct;
+  const envPrefix = `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=${backstop} FLEET_SESSION=${shellSingleQuote(sessionId())} FLEET_AGENT_ID=${agentId} `;
   return envPrefix + buildClaudeCommand(model, task, autostart, mode);
 }
 
@@ -389,7 +410,7 @@ export function spawn(opts: SpawnOptions): Agent {
       : "";
     // Engage the proof-of-work gate: every worker is told, concretely, how to
     // attach proof when it finishes (B3 — the gate shipped but nothing invoked it).
-    const task = `${opts.task}\n\n${worktreeNote}${proofInstruction(agentId)}`;
+    const task = `${opts.task}\n\n${worktreeNote}${proofInstruction(agentId)}\n\n${contextDisciplineClause()}`;
     if (waitForClaudeReady(t)) {
       // The ready→submit path is verified too: a paste-collapsed brief that
       // never leaves the input box was fail-open before (the live "autostart

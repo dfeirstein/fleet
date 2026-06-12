@@ -16,6 +16,7 @@ import {
   surfaceHealthEntries,
   surfaceHealthFailure,
   feedRepliesSupported,
+  submitToClaude,
   type SurfaceResourceSample,
   type Target,
   type EventStreamHandle,
@@ -51,8 +52,19 @@ import {
 import { loadAllOrchestrators, writeOrchestrator, type OrchestratorRecord } from "../orchestrator-record.js";
 import { readHookSessions, type DurableSessionMap } from "../cmux-sessions.js";
 import { decideSelfHeal } from "./selfheal.js";
-import { routeMessage } from "./channel.js";
-import { newMemory, evaluate, evaluateResources, waveCompleteMessage, type DaemonMemory } from "./policy.js";
+import { routeMessage, orchestratorIdle } from "./channel.js";
+import {
+  newMemory,
+  evaluate,
+  evaluateResources,
+  evaluateContextOccupancy,
+  waveCompleteMessage,
+  type DaemonMemory,
+  type CtxThresholds,
+  type CtxDecision,
+} from "./policy.js";
+import { readSidecars, classifyOccupancy, workerSidecar, captainSidecar } from "./ctx.js";
+import { classifyScreen } from "../status.js";
 
 /** Every Captain whose surface (pane) is still live — the set the daemon watches.
  *  Surface-level, not workspace-level: quadrant siblings share one workspace, so a
@@ -195,6 +207,12 @@ function configForCaptain(o: OrchestratorRecord, s: SharedSettings): DaemonConfi
     memHogMb: s.memHogMb,
     sidebarColors: s.sidebarColors,
     sidebarLabels: s.sidebarLabels,
+    contextCautionPct: s.contextCautionPct,
+    contextHardPct: s.contextHardPct,
+    contextAutoCompactWorkers: s.contextAutoCompactWorkers,
+    contextAutoCompactCaptain: s.contextAutoCompactCaptain,
+    contextCompactCooldownSec: s.contextCompactCooldownSec,
+    contextBackstopPct: s.contextBackstopPct,
   };
 }
 
@@ -333,6 +351,54 @@ export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now:
   }
 }
 
+/** Context-guard thresholds from the per-Captain config (ms-normalized). */
+function ctxThresholds(cfg: DaemonConfig): CtxThresholds {
+  return {
+    cautionPct: cfg.contextCautionPct,
+    hardPct: cfg.contextHardPct,
+    autoCompactWorkers: cfg.contextAutoCompactWorkers,
+    autoCompactCaptain: cfg.contextAutoCompactCaptain,
+    compactCooldownMs: cfg.contextCompactCooldownSec * 1000,
+    alertCooldownMs: cfg.alertCooldownSec * 1000,
+  };
+}
+
+/** The cmux/channel seams applyCtxDecision drives — injectable so the routing
+ *  (worker pane vs orchestrator pane) is unit-testable without real panes. */
+export interface CtxApplyDeps {
+  submit: (t: Target, text: string) => unknown;
+  route: (cfg: DaemonConfig, text: string, urgent: boolean) => unknown;
+}
+const liveCtxApplyDeps: CtxApplyDeps = { submit: submitToClaude, route: routeMessage };
+
+/** Perform a context-guard decision: send `/compact` through the submitToClaude
+ *  seam (worker pane or the orchestrator pane), and/or route a Captain nudge.
+ *  `compact:"worker"` targets the worker's pane; `compact:"captain"` always
+ *  targets the orchestrator pane (never the worker). */
+export function applyCtxDecision(
+  cfg: DaemonConfig,
+  decision: CtxDecision,
+  label: string,
+  workerTarget?: Target,
+  deps: CtxApplyDeps = liveCtxApplyDeps,
+): void {
+  if (decision.compact) {
+    const t = decision.compact === "worker" ? workerTarget : cfg.orchestrator;
+    if (t) {
+      try {
+        const res = deps.submit(t, "/compact");
+        console.log(`[daemon] context guard: /compact → ${label} (${res})`);
+      } catch (e) {
+        console.error(`[daemon] context guard: /compact → ${label} failed: ${(e as Error).message}`);
+      }
+    }
+  }
+  if (decision.message) {
+    const delivery = deps.route(cfg, decision.message.text, decision.message.urgent);
+    console.log(`[daemon] ${delivery} (context guard): ${decision.message.text}`);
+  }
+}
+
 function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const rows = snapshot(); // reconcile + classify (marks dead)
   // Draw the dashboard + heartbeat on the ORCHESTRATOR's workspace (the daemon's
@@ -347,6 +413,11 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const agents = listAgents();
   // One resource sweep for the whole beat (undefined on older cmux → guardrail off).
   const top = sampledTop(now);
+  // One context-sidecar read for the whole beat (statusline telemetry; empty
+  // when the statusline isn't emitting → every session reads UNKNOWN → no-op).
+  const sidecars = readSidecars();
+  const nowSec = Math.floor(now / 1000);
+  const ctxTh = ctxThresholds(cfg);
 
   // RPC steering: pending Feed prompts (oldest first), so a blocked nudge can
   // carry the prompt summary + the exact `fleet reply` command. SURFACING only
@@ -443,6 +514,42 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
       const delivery = routeMessage(cfg, rmsg.text, rmsg.urgent);
       console.log(`[daemon] ${delivery} (guardrail): ${rmsg.text}`);
     }
+
+    // Context guard: an idle worker over caution → drive `/compact` (the daemon's
+    // safe-breakpoint compaction); a running worker over the hard ceiling → urgent
+    // Captain nudge. UNKNOWN occupancy (stale/missing sidecar) is a strict no-op.
+    if (a.status === "idle" || a.status === "running") {
+      const occ = classifyOccupancy(workerSidecar(sidecars, a.agentId), nowSec);
+      // Close the idle-race: `a.status` is from snapshot() at beat start, but the
+      // /compact send happens later in the loop. Re-classify the FRESH screen read
+      // (above) and treat the worker idle only if it still isn't running — so a
+      // worker that re-entered a turn mid-beat is never auto-/compacted mid-turn.
+      const idle = a.status === "idle" && classifyScreen(screen) !== "running";
+      const cmsg = evaluateContextOccupancy(
+        { agentId: a.agentId, label: a.label, role: "worker", idle, occ },
+        mem,
+        now,
+        ctxTh,
+      );
+      if (cmsg) applyCtxDecision(cfg, cmsg, a.label, t);
+    }
+  }
+
+  // Captain context guard: nudge (or, if contextAutoCompactCaptain, auto-`/compact`)
+  // when the orchestrator's OWN occupancy crosses the thresholds. Only read its
+  // idle state when there's a fresh reading at/over caution (saves a screen read
+  // and keeps the byte-identical no-op when the statusline isn't emitting).
+  if (cfg.session) {
+    const capOcc = classifyOccupancy(captainSidecar(sidecars, cfg.session), nowSec);
+    if (capOcc.known && capOcc.pct >= ctxTh.cautionPct) {
+      const cmsg = evaluateContextOccupancy(
+        { agentId: `captain:${cfg.session}`, label: "captain", role: "captain", idle: orchestratorIdle(cfg), occ: capOcc },
+        mem,
+        now,
+        ctxTh,
+      );
+      if (cmsg) applyCtxDecision(cfg, cmsg, "captain");
+    }
   }
 
   // Forget tracking for agents that are gone.
@@ -457,6 +564,15 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   }
   for (const id of Object.keys(mem.doneLoop)) {
     if (!agents.find((a) => a.agentId === id)) delete mem.doneLoop[id];
+  }
+  // Context state: forget gone agents, but KEEP the `captain:<session>` key (it
+  // tracks the Captain's own occupancy and matches no worker). The whole
+  // per-Captain memory is dropped when its session closes (see runLoop).
+  for (const id of Object.keys(mem.ctx)) {
+    if (!id.startsWith("captain:") && !agents.find((a) => a.agentId === id)) delete mem.ctx[id];
+  }
+  for (const id of Object.keys(mem.ctxAlert)) {
+    if (!id.startsWith("captain:") && !agents.find((a) => a.agentId === id)) delete mem.ctxAlert[id];
   }
 
   // Idle initiative: when a wave that was running settles into SUSTAINED

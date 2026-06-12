@@ -104,6 +104,7 @@ On-demand docs index — each file loads when its topic is relevant. Maintained 
 ```
 architecture|.claude-docs/architecture.md|Module map, the cmux.ts shell-out seam, spawn flow, ~/.fleet state, the daemon + selfheal, bin/fleet auto-update layer
 event-stream|.claude-docs/event-stream.md|Event reactor (cmux event stream → worker state) + the proof-of-work gate: redacted payloads, session↔workspace map, sidebar self-echo, done-signal, note: fail-closed rule
+context-guard|.claude-docs/context-guard.md|Daemon context-occupancy guard: ~/.fleet/ctx sidecar telemetry, 50%/66% compaction policy (auto-/compact idle workers, nudge the Captain), fail-closed staleness, configurable thresholds
 cmux-addressing|.claude-docs/cmux-addressing.md|Workspace+surface UUID addressing, TUI readiness gate + bracketed-paste submit, lazy PTY boot
 typescript-esm|.claude-docs/typescript-esm.md|ESM + tsx: .js import extensions, import type, strict/noUncheckedIndexedAccess, no build
 verification|.claude-docs/verification.md|node:test for pure decision cores + typecheck + CLI + fleet verify/audit-docs (fail-closed) eval gates
