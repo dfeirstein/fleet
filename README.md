@@ -3,7 +3,8 @@
 A multi-agent orchestrator for [cmux](https://github.com/manaflow-ai/cmux). One
 Claude Code session becomes the **⚓ Fleet Captain** that launches, steers, and
 monitors a fleet of **worker** Claude Code sessions — each in its own cmux pane,
-all running under your **Max plan** ($0 per token, no API key).
+all running on the **native Claude Code CLI** with your Claude subscription or
+API key. No third-party harness, no `claude -p` wrappers.
 
 It's the [pi-style multi-agent rig from the cmux demo](https://youtu.be/8jDXI4_rJOE),
 rebuilt as a thin CLI you drive from any project in plain language.
@@ -24,9 +25,9 @@ cmux is the GPU-accelerated terminal Fleet runs on. Download the macOS app from
 
 ### 2. Open cmux and type `claude`
 
-Claude Code launches right inside a cmux terminal. Log in with your **Pro / Max /
-Team** subscription — every worker the Captain spawns inherits that session, so
-it's **$0 per token, no API key**.
+Claude Code launches right inside a cmux terminal. Log in with your **Claude
+subscription (Pro / Max / Team) or API key** — every worker the Captain spawns
+is a real Claude Code session that inherits the same auth.
 
 ### 3. Tell Claude:
 
