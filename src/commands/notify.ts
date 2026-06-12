@@ -39,15 +39,9 @@ export function notifyOrchestrator(message: string, urgent: boolean): Delivery {
     throw new Error("no orchestrator declared and CMUX_WORKSPACE_ID unset — can't locate the orchestrator");
   }
   const cfg: DaemonConfig = {
+    ...DAEMON_DEFAULTS,
     orchestrator: { workspace: target.workspace, surface: target.surface },
     session: orch?.session,
-    heartbeatSec: DAEMON_DEFAULTS.heartbeatSec,
-    stuckMinutes: DAEMON_DEFAULTS.stuckMinutes,
-    alertCooldownSec: DAEMON_DEFAULTS.alertCooldownSec,
-    proactive: DAEMON_DEFAULTS.proactive,
-    cpuHogPercent: DAEMON_DEFAULTS.cpuHogPercent,
-    cpuHogBeats: DAEMON_DEFAULTS.cpuHogBeats,
-    memHogMb: DAEMON_DEFAULTS.memHogMb,
   };
   return routeMessage(cfg, message, urgent);
 }

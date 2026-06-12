@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **Context guard — daemon-driven 50%/66% compaction**: the shared daemon reads per-session context-occupancy sidecars (`~/.fleet/ctx/<id>.json`) and, fail-closed (stale/missing/corrupt → no action), auto-`/compact`s an idle worker at ≥50% and nudges the Captain (urgent past the 66% ceiling); thresholds configurable via `~/.fleet/daemon/shared-config.json`. New `src/daemon/ctx.ts` + `evaluateContextOccupancy` (`node:test`); worker briefs gain a context-discipline clause; `buildWorkerLaunchCommand` exports a validated `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` backstop; `fleet status` shows `ctx N%`. See `.claude-docs/context-guard.md`.
+
 ### Docs
 - **2026-06-11 wave distilled into project memory**: CLAUDE.md gains four verified gotchas (`claude --continue` fork hazard → resume by explicit sessionId; the orchestrator record's two writers; `bin/fleet`'s pre-tsx auto-update layer must keep stdout clean; existence probes model `present|absent|unknown` and fail closed) and stays under 120 lines; architecture.md maps the new modules (`selfheal.ts`, `autoupdate.ts`, `gc.ts`, `captain-args.ts`, `cmux-sessions.ts`) + the daemon self-heal beat; verification.md documents `npm test` (node:test pure-core suites) as a CI gate; gc/installer bullets re-pointed from issue to merge-PR numbers (#46/#47).
 

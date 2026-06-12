@@ -5,6 +5,7 @@
 // surfaced here for the orchestrator to decide.
 
 import { IdleDwell } from "../quiescence.js";
+import type { Occupancy } from "./ctx.js";
 
 export interface DaemonMemory {
   /** agentId -> condition -> last alert epoch ms */
@@ -32,6 +33,32 @@ export interface DaemonMemory {
    *  ran the check this turn (dedup so the check fires once per idle transition,
    *  not every beat). Reset when lastDispatchAt changes (a new turn). */
   doneLoop: Record<string, { dispatchAt: string; sawActive: boolean; checked: boolean }>;
+  /** Context-guard per-agent bookkeeping (workers AND the Captain, keyed by
+   *  agentId / `captain:<session>`): last observed pct (for compaction-drop
+   *  detection), and whether we've already auto-`/compact`ed / escalated this
+   *  occupancy episode. A pct DROP >15 resets it (the session compacted). */
+  ctx: Record<string, CtxAgentState>;
+  /** agentId → condition → last context-nudge epoch ms. Separate from lastAlert
+   *  for the same reason as lastResourceAlert: evaluate() clears lastAlert when
+   *  STATUS is healthy, which would wipe a live context cooldown. */
+  ctxAlert: Record<string, Record<string, number>>;
+}
+
+export interface CtxAgentState {
+  /** Last observed occupancy pct — a drop of more than CTX_COMPACT_DROP since
+   *  this value means the session compacted, so the episode resets. */
+  lastPct: number;
+  /** Epoch ms we last auto-sent `/compact` to this pane (worker or Captain). */
+  compactSentAt?: number;
+  /** We escalated ONCE that an auto-`/compact` didn't take — don't re-send forever. */
+  escalated?: boolean;
+  /** Captain only: we nudged it to persist `fleet state` (the beat BEFORE an
+   *  auto-`/compact`), so the next beat is allowed to actually compact it. */
+  captainSaveNudgedAt?: number;
+  /** Last observed sidecar `compactions` counter — an increment since this means
+   *  the session compacted between beats (even if we missed the pct dip), so the
+   *  episode resets too (avoids a false "ignoring /compact" escalation). */
+  lastCompactions?: number;
 }
 
 export function newMemory(): DaemonMemory {
@@ -44,6 +71,8 @@ export function newMemory(): DaemonMemory {
     lastResourceAlert: {},
     sidebarPaint: {},
     doneLoop: {},
+    ctx: {},
+    ctxAlert: {},
   };
 }
 
@@ -225,4 +254,170 @@ export function evaluateResources(
     [cond]: nowMs,
   };
   return { text, urgent: false }; // a nudge, not an interrupt
+}
+
+// ── Context-occupancy guard ────────────────────────────────────────────────
+// Turn one session's occupancy reading into either an ACTION (send `/compact`
+// to that pane) or a Captain NUDGE, with per-agent cooldown + compaction-detect
+// reset. Pure over DaemonMemory + the supplied thresholds (no cmux): loop.ts
+// performs the `/compact` through the submitToClaude seam. FAIL CLOSED — an
+// UNKNOWN reading (stale / missing / corrupt sidecar) returns null, so the guard
+// never acts on stale data and never re-arms off it.
+
+/** A pct drop bigger than this between beats means the session compacted. */
+export const CTX_COMPACT_DROP = 15;
+
+export interface CtxThresholds {
+  /** Compact at the next natural breakpoint once occupancy reaches this. */
+  cautionPct: number;
+  /** Always compact before this — the hard ceiling. */
+  hardPct: number;
+  /** Drive `/compact` to an idle worker ourselves (else nudge-only). */
+  autoCompactWorkers: boolean;
+  /** Drive `/compact` to an idle Captain ourselves (else nudge-only). */
+  autoCompactCaptain: boolean;
+  /** Min ms between an auto-`/compact` and the escalation that follows if it
+   *  didn't take (don't re-send forever). */
+  compactCooldownMs: number;
+  /** Min ms between repeat nudges for the same condition. */
+  alertCooldownMs: number;
+}
+
+export interface CtxDecision {
+  /** Send `/compact` to this pane (loop.ts does it via the submitToClaude seam). */
+  compact?: "worker" | "captain";
+  /** A message to route to the Captain. */
+  message?: DaemonMsg;
+}
+
+/**
+ * Context-guard policy for ONE session (a worker or the Captain). Precedence:
+ *   WORKER  — idle + autoCompactWorkers + ≥caution → `/compact` (then, if it
+ *             didn't take after the cooldown, ONE escalation to the Captain);
+ *             otherwise (running mid-turn, or auto off) ≥hard → urgent nudge.
+ *   CAPTAIN — ≥hard with autoCompactCaptain + idle → save-state nudge on the
+ *             first beat, then `/compact` on the next (never compact without a
+ *             prior save-state beat); else ≥hard → urgent nudge; ≥caution →
+ *             non-urgent nudge.
+ * `idle` means the session is between turns (a safe breakpoint).
+ */
+export function evaluateContextOccupancy(
+  input: { agentId: string; label: string; role: "worker" | "captain"; idle: boolean; occ: Occupancy },
+  mem: DaemonMemory,
+  nowMs: number,
+  th: CtxThresholds,
+): CtxDecision | null {
+  const { agentId, label, role, idle, occ } = input;
+
+  // Fail closed: no fresh reading → no action, and don't touch episode state.
+  if (!occ.known) return null;
+
+  let st = mem.ctx[agentId];
+  if (!st) st = mem.ctx[agentId] = { lastPct: occ.pct, lastCompactions: occ.compactions };
+
+  // The session compacted (or restarted) → reset the episode so a future climb
+  // re-arms from scratch. Detected two ways: a big pct DROP between observed
+  // readings, OR the sidecar's monotonic `compactions` counter incrementing
+  // (catches a compact+regrow that happened entirely between two beats — without
+  // it the daemon never sees the dip and fires a false "ignoring /compact").
+  const compactedBetweenBeats =
+    occ.compactions !== undefined && st.lastCompactions !== undefined && occ.compactions > st.lastCompactions;
+  if (st.lastPct - occ.pct > CTX_COMPACT_DROP || compactedBetweenBeats) {
+    st.compactSentAt = undefined;
+    st.escalated = undefined;
+    st.captainSaveNudgedAt = undefined;
+    delete mem.ctxAlert[agentId];
+  }
+  st.lastPct = occ.pct;
+  st.lastCompactions = occ.compactions;
+  const pct = Math.round(occ.pct);
+
+  // Cooldown gate WITH side effect: only call when the pct condition holds
+  // (short-circuit), so the timestamp is stamped only when we actually nudge.
+  const cooledDown = (cond: string): boolean => {
+    const last = mem.ctxAlert[agentId]?.[cond] ?? 0;
+    if (nowMs - last < th.alertCooldownMs) return false;
+    mem.ctxAlert[agentId] = { ...(mem.ctxAlert[agentId] ?? {}), [cond]: nowMs };
+    return true;
+  };
+
+  if (role === "worker") {
+    if (idle && th.autoCompactWorkers && occ.pct >= th.cautionPct) {
+      if (st.compactSentAt === undefined) {
+        st.compactSentAt = nowMs;
+        return { compact: "worker" };
+      }
+      // Still high after the cooldown (a real compaction would have reset
+      // compactSentAt via the drop check) → escalate ONCE, then stay quiet.
+      if (nowMs - st.compactSentAt >= th.compactCooldownMs && !st.escalated) {
+        st.escalated = true;
+        return {
+          message: {
+            urgent: false,
+            text: `${label} is still at ${pct}% context after an auto \`/compact\` — it may be ignoring it; check with \`fleet read ${label}\`.`,
+          },
+        };
+      }
+      return null; // within cooldown — waiting for the compaction to land
+    }
+    // Can't auto-compact (running mid-turn, or the flag is off) but over the
+    // hard ceiling → urgent Captain nudge.
+    if (occ.pct >= th.hardPct && cooledDown("hard")) {
+      return {
+        message: {
+          urgent: true,
+          text: `worker ${label} at ${pct}% mid-turn — will degrade; consider \`fleet send ${label} 'wrap up current step, then run /compact'\`.`,
+        },
+      };
+    }
+    return null;
+  }
+
+  // role === "captain"
+  if (occ.pct >= th.hardPct) {
+    if (th.autoCompactCaptain && idle) {
+      // Give the Captain ONE beat to persist durable state before we compact it.
+      if (st.captainSaveNudgedAt === undefined) {
+        st.captainSaveNudgedAt = nowMs;
+        return {
+          message: {
+            urgent: true,
+            text: `your context is at ${pct}% (over the ${th.hardPct}% hard ceiling) — persist durable state with \`fleet state\` NOW; the daemon will auto-\`/compact\` you on the next beat.`,
+          },
+        };
+      }
+      if (st.compactSentAt === undefined) {
+        st.compactSentAt = nowMs;
+        return { compact: "captain" };
+      }
+      if (nowMs - st.compactSentAt >= th.compactCooldownMs && !st.escalated) {
+        st.escalated = true;
+        return {
+          message: {
+            urgent: true,
+            text: `your context is still at ${pct}% after an auto \`/compact\` — persist \`fleet state\` and run \`/compact\` manually.`,
+          },
+        };
+      }
+      return null;
+    }
+    if (cooledDown("hard")) {
+      return {
+        message: {
+          urgent: true,
+          text: `your context is at ${pct}% — over the ${th.hardPct}% hard ceiling. Persist \`fleet state\`, run \`/compact\`, then \`fleet state\` to reload before continuing.`,
+        },
+      };
+    }
+    return null;
+  }
+  if (occ.pct >= th.cautionPct && cooledDown("caution")) {
+    return {
+      message: {
+        urgent: false,
+        text: `your context is at ${pct}% — at the next natural breakpoint persist \`fleet state\`, run \`/compact\`, then \`fleet state\` to reload. Hard ceiling ${th.hardPct}%.`,
+      },
+    };
+  }
+  return null;
 }

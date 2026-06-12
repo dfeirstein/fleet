@@ -8,6 +8,7 @@ import { pendingBlocks, type PendingBlock } from "../events.js";
 import { realCwd } from "./prompts.js";
 import { doneSignalFresh } from "../quiescence.js";
 import { readHookSessions, findSession, lifecycleHint, type DurableSessionMap } from "../cmux-sessions.js";
+import { readSidecars, classifyOccupancy, workerSidecar } from "../daemon/ctx.js";
 
 const ICON: Record<string, string> = {
   running: "●",
@@ -48,6 +49,11 @@ export interface FleetRow {
    *  dev-server ports + PR URLs for the worker's workspace, where present. */
   ports?: string[];
   prUrls?: string[];
+  /** Context-occupancy percent from the statusline sidecar, when a FRESH one
+   *  exists for this agent. Undefined when no sidecar / stale (see ctxStale). */
+  ctxPct?: number;
+  /** A sidecar existed but is stale (occupancy UNKNOWN) → render `ctx ?`. */
+  ctxStale?: boolean;
 }
 
 /** What the one-RPC sidebar snapshot pre-fetched for one worker. The snapshot
@@ -156,6 +162,10 @@ export function snapshot(): FleetRow[] {
   // One more (weak) input: cmux's durable per-session lifecycle, read once for
   // the whole snapshot. Missing/corrupt file → undefined → exactly as before.
   const durable = readHookSessions();
+  // Context-occupancy sidecars (statusline telemetry), read once for the whole
+  // snapshot — purely for display; absent/stale → the row just omits the ctx hint.
+  const sidecars = readSidecars();
+  const nowSec = Math.floor(Date.now() / 1000);
   for (const a of listAgents()) {
     const pre = prefetchFromSnapshot(a.workspaceId, sidebar);
     let status: string = a.status;
@@ -184,6 +194,7 @@ export function snapshot(): FleetRow[] {
     // cleared the gate. Cheap (registry-only) — the gate that RUNS proofs lives
     // in `fleet done` / `fleet digest`, not on the status poll.
     const proof = status === "idle" ? ((a.proofs?.length ?? 0) > 0 ? "claimed" : "none") : undefined;
+    const occ = classifyOccupancy(workerSidecar(sidecars, a.agentId), nowSec);
     rows.push({
       agentId: a.agentId,
       label: a.label,
@@ -198,6 +209,8 @@ export function snapshot(): FleetRow[] {
       lastDispatchAt: a.lastDispatchAt,
       ports: pre.ports.length ? pre.ports : undefined,
       prUrls: pre.prUrls.length ? pre.prUrls : undefined,
+      ctxPct: occ.known ? Math.round(occ.pct) : undefined,
+      ctxStale: occ.stale || undefined,
     });
   }
   if (process.env.FLEET_DEBUG) {
@@ -243,7 +256,9 @@ export function renderTable(rows: FleetRow[]): string {
     const task = r.task.length > 50 ? r.task.slice(0, 47) + "..." : r.task;
     // Snapshot enrichment: dev-server ports + PR URLs, where the one-RPC
     // sidebar snapshot had them (absent on older cmux — column just omitted).
+    const ctx = r.ctxPct !== undefined ? `ctx ${r.ctxPct}%` : r.ctxStale ? "ctx ?" : "";
     const extras = [
+      ctx,
       r.ports?.length ? `⇡${r.ports.join(",")}` : "",
       ...(r.prUrls ?? []),
     ].filter(Boolean);

@@ -42,6 +42,25 @@ export interface DaemonConfig {
    *  defaults in src/sidebar.ts — partial configs keep the rest. */
   sidebarColors?: Record<string, string>;
   sidebarLabels?: Record<string, string>;
+  /** Context guard (src/daemon/ctx.ts + evaluateContextOccupancy). Thresholds
+   *  are STARTING HYPOTHESES, configurable per the research doc — never a
+   *  hard-coded universal number. Tune via ~/.fleet/daemon/shared-config.json.
+   *  At cautionPct a session should compact at its next breakpoint; it must
+   *  always compact before hardPct. */
+  contextCautionPct: number;
+  contextHardPct: number;
+  /** Drive `/compact` to an idle worker ourselves (true) vs nudge-only (false). */
+  contextAutoCompactWorkers: boolean;
+  /** Drive `/compact` to an idle Captain ourselves (default false → nudge-only:
+   *  the Captain persists `fleet state`, compacts, then reloads `fleet state`). */
+  contextAutoCompactCaptain: boolean;
+  /** Min seconds between an auto-`/compact` and the follow-up escalation if it
+   *  didn't take (so we don't re-`/compact` forever). */
+  contextCompactCooldownSec: number;
+  /** Worker-launch backstop: the value exported as CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+   *  on a worker's claude launch line, so Claude Code's own auto-compaction kicks
+   *  in if the daemon ever misses. Sits between caution and hard (60). */
+  contextBackstopPct: number;
 }
 
 export function daemonDir(): string {
@@ -68,6 +87,16 @@ export const DAEMON_DEFAULTS = {
   cpuHogPercent: 90,
   cpuHogBeats: 5,
   memHogMb: 4096,
+  // Context guard: compact at 50% (next breakpoint), hard ceiling 66%. Workers
+  // auto-`/compact` when idle; the Captain is nudge-only by default (it must
+  // persist `fleet state` before compacting). 10-min cooldown before escalating
+  // a `/compact` that didn't take. All starting hypotheses — tune in config.
+  contextCautionPct: 50,
+  contextHardPct: 66,
+  contextAutoCompactWorkers: true,
+  contextAutoCompactCaptain: false,
+  contextCompactCooldownSec: 600,
+  contextBackstopPct: 60,
 };
 
 /** Is a recorded daemon still alive? (signal 0 = liveness probe) */

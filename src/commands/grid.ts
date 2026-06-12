@@ -26,7 +26,7 @@ import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { upsert, sessionId, type Agent } from "../registry.js";
 import { ensureWorkerGrouped } from "../sidebar.js";
-import { buildWorkerLaunchCommand, proofInstruction, acceptBypassDialog, type PermMode } from "./spawn.js";
+import { buildWorkerLaunchCommand, proofInstruction, contextDisciplineClause, acceptBypassDialog, type PermMode } from "./spawn.js";
 import { repoRoot, currentBranch, addWorktree } from "../git.js";
 
 export interface GridOptions {
@@ -135,7 +135,7 @@ function planCells(opts: GridOptions): CellPlan[] {
     // and the launch line exports FLEET_SESSION/FLEET_AGENT_ID so `fleet done`
     // resolves from inside the pane. Idle panes (no task) get the env exports
     // too — their brief arrives later via `fleet send`.
-    if (cellTask) cellTask += `\n\n${proofInstruction(agentId)}`;
+    if (cellTask) cellTask += `\n\n${proofInstruction(agentId)}\n\n${contextDisciplineClause()}`;
     const claudeCmd = buildWorkerLaunchCommand(agentId, opts.model, cellTask, cellTask.length > 0, opts.mode);
     const command = worktree ? `cd '${worktree.path}' && ${claudeCmd}` : claudeCmd;
     plans.push({ agentId, label, cwd, worktree, command, task: launchedTask });
