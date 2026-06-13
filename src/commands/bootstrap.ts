@@ -22,8 +22,10 @@ const THIN_CLAUDE_MD_BYTES = 400;
  * Default model for the scribe (the claude CLI `--model` alias, verified from
  * `claude --help`). The former "smarter scribe" model tier has been disabled,
  * so scribe/distill/memory workers now run on the fleet-wide Opus default like
- * every other worker. The tiering lever is now EFFORT, not model:
- * scribe/distill/memory run Opus at low effort while execution workers run it at
+ * every other worker. The tiering lever is now EFFORT, not model: the scribe's
+ * mechanical scaffolding runs at low effort, but its quality-sensitive
+ * distill/verify pass defaults to high (don't starve it — that pass was the
+ * reason memory work once ran on the premium tier); execution workers run at
  * xhigh. The explicit const is kept for clarity and an explicit `--model` still
  * overrides.
  */

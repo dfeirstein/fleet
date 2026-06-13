@@ -23,14 +23,18 @@ text that misroutes.
 ## The one delta
 Replace "tier workers by **model**" with "tier workers by **`effort`**" wherever the
 doctrine/skill speaks of worker model selection:
-- scribe / distill / memory / leaf workers → **`effort: low`**
+- mechanical leaf work + scribe **scaffolding** → **`effort: low`**
+- **distill / verify / memory → `effort: high` (default)** — quality-sensitive
+  (verification coverage + rule generalization; the reason memory work once ran on
+  the premium Fable tier). Don't starve it at low; drop toward low only if
+  `fleet audit-docs` coverage holds there.
 - ordinary execution → **`effort: xhigh`** (the 4.8 coding/agentic sweet spot)
 - Captain → **`high`/`xhigh`**
 - use **Task Budgets** (beta `task-budgets-2026-03-13`, min 20K) for self-moderating spend.
-Concretely: `bootstrap.ts` `SCRIBE_MODEL "fable"→"opus"` (done, branch
-`fleet/fable-to-opus`); update `orchestrator-doctrine.md` / the `fleet` skill's
-model-tier language to effort-tier language; default scribe/distill/memory spawns to
-low effort rather than a special model.
+Concretely: `bootstrap.ts` `SCRIBE_MODEL "fable"→"opus"` (done); update
+`orchestrator-doctrine.md` / the `fleet` skill's model-tier language to effort-tier
+language; default scribe *scaffolding* to low and the *distill/verify* pass to high
+rather than a special model.
 
 > Related, lower-priority briefing-discipline items from the same research (track
 > separately, NOT bundled into this delta — keep one narrow change per commit): 4.8
@@ -48,11 +52,13 @@ already handled by the migration branch.
 
 ## Evaluation
 - Test objectives: any wave that spawns scribe + execution workers together (e.g.
-  `fleet bootstrap` then a build wave). Expect **tokens-per-objective to drop** (leaf/
-  scribe work at low effort) with **no regression in `fleet audit-docs` verification
-  coverage** or execution wave-success rate.
-- Guardrail: re-validate scribe/distill quality on Opus 4.8 at low effort before trusting
-  it — the CL-Bench 73% coverage number was Fable-specific and does not transfer.
+  `fleet bootstrap` then a build wave). Expect **tokens-per-objective to drop**
+  (leaf + scribe scaffolding at low effort) with **no regression in
+  `fleet audit-docs` verification coverage** (the distill/verify pass stays at
+  high to protect exactly that) or execution wave-success rate.
+- Guardrail: the distill/verify pass defaults to `high`; only test dropping it
+  toward `low` if `audit-docs` coverage holds — the CL-Bench 73% number was
+  Fable-specific and does not transfer, so measure rather than assume.
 - Smoke set: `npm run typecheck` + `npm test` green on the migration branch (gate).
 
 ## Decision
