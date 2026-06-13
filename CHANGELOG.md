@@ -13,6 +13,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 - **README pricing copy**: replace the "$0 per token, no API key / Max plan" framing with the accurate claim — fleet drives the native Claude Code CLI and works with your Claude subscription (Pro / Max / Team) or API key; no third-party harness, no `claude -p` wrappers.
 - **2026-06-11 wave distilled into project memory**: CLAUDE.md gains four verified gotchas (`claude --continue` fork hazard → resume by explicit sessionId; the orchestrator record's two writers; `bin/fleet`'s pre-tsx auto-update layer must keep stdout clean; existence probes model `present|absent|unknown` and fail closed) and stays under 120 lines; architecture.md maps the new modules (`selfheal.ts`, `autoupdate.ts`, `gc.ts`, `captain-args.ts`, `cmux-sessions.ts`) + the daemon self-heal beat; verification.md documents `npm test` (node:test pure-core suites) as a CI gate; gc/installer bullets re-pointed from issue to merge-PR numbers (#46/#47).
 
+### Fixed
+- **Bug 1 — currency no longer caches a failed registry lookup as a fresh fact** (bughunt 2026-06-13): an errored npm/PyPI lookup (network/HTTP/timeout, all collapsed to `undefined`) was unconditionally stamped `fetchedAt: today()`, so `isFresh()` reused it for the full 7-day TTL (never retried) and `audit-docs` read a `latest: undefined` entry as a present, current fact — a fail-OPEN violation of the "inconclusive = FAIL" contract. The `resolve()` path now treats an unresolved lookup as not-a-fact: it carries forward the last-known-good value (with its prior date) or leaves `fetchedAt` empty, so `isFresh()` stays false (re-fetched next run) and `staleCurrency()` flags it (fail closed). `node:test`: `src/commands/currency.test.ts`.
+
 ## 2026-06-11
 
 ### Added

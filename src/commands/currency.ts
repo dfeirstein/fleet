@@ -189,17 +189,26 @@ export async function currency(opts: { cwd: string; ttlDays?: number; force?: bo
       entries.push({ ...cached!, pinned }); // keep resolved latest, refresh pinned from manifest
       return;
     }
+    const source = kind === "npm" ? `https://www.npmjs.com/package/${name}` : `https://pypi.org/project/${name}/`;
     const latest = kind === "npm" ? await latestNpm(name) : await latestPypi(name);
     refetched++;
-    entries.push({
-      name,
-      kind,
-      pinned,
-      latest,
-      source: kind === "npm" ? `https://www.npmjs.com/package/${name}` : `https://pypi.org/project/${name}/`,
-      fetchedAt: today(),
-      note: latest ? undefined : "unresolved (registry lookup failed)",
-    });
+    if (latest === undefined) {
+      // A failed lookup is NOT a fresh fact. Carry forward the last-known-good
+      // value if we have one (with its PRIOR date, so age still flags it); else
+      // leave `fetchedAt` empty so isFresh() stays false (re-fetched next run)
+      // and audit-docs flags it — fail closed, never a today-stamped phantom.
+      entries.push({
+        name,
+        kind,
+        pinned,
+        latest: cached?.latest,
+        source,
+        fetchedAt: cached?.latest ? cached.fetchedAt : "",
+        note: "unresolved (registry lookup failed)",
+      });
+      return;
+    }
+    entries.push({ name, kind, pinned, latest, source, fetchedAt: today() });
   };
 
   // Resolve npm + pypi deps with bounded concurrency.
