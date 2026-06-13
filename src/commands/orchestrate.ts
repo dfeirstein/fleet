@@ -147,7 +147,7 @@ export function orchestrate(name: string, opts: { daemon?: boolean; resume?: boo
     resumeArg = r.arg;
     if (r.warning) console.warn(`⚠ ${r.warning}`);
   }
-  // --model pins the Captain to a specific model (e.g. claude-fable-5); omitted → user default.
+  // --model pins the Captain to a specific model (e.g. claude-opus-4-8); omitted → user default.
   const mdl = opts.model ? `--model '${opts.model}' ` : "";
   // Every Captain launches with Remote Control on, named for its session, so the
   // user can talk to any Captain (yoshi, yoshi-2, …) from the Claude mobile app.

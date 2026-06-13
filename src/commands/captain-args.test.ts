@@ -42,9 +42,9 @@ test("normalizeCaptainArgs: `--print --resume yoshi` resolves name + both boolea
 });
 
 test("normalizeCaptainArgs: value flags (--model) are NOT reclaimed as a name", () => {
-  const { name, flags } = normalizeCaptainArgs({ resume: true, model: "claude-fable-5" }, []);
+  const { name, flags } = normalizeCaptainArgs({ resume: true, model: "claude-opus-4-8" }, []);
   assert.equal(name, "");
-  assert.equal(flags.model, "claude-fable-5");
+  assert.equal(flags.model, "claude-opus-4-8");
 });
 
 test("normalizeCaptainArgs: greedy --no-daemon yoshi reclaims the name and flips the flag", () => {
@@ -129,7 +129,7 @@ test("inPaneResumeRecipe: includes --model when given", () => {
     cwd: "/u",
     sessionId: "id",
     promptPath: "/p.md",
-    model: "claude-fable-5",
+    model: "claude-opus-4-8",
   });
-  assert.match(recipe, /--model claude-fable-5/);
+  assert.match(recipe, /--model claude-opus-4-8/);
 });

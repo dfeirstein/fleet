@@ -20,13 +20,14 @@ const THIN_CLAUDE_MD_BYTES = 400;
 
 /**
  * Default model for the scribe (the claude CLI `--model` alias, verified from
- * `claude --help`). Scribes do the verify/distill memory stages where CL-Bench
- * shows Opus-tier underperforms and Fable 5 completes the loop (research/
- * continual-learning-bench-parth-asawa-2026-06-10.md, rec #3) — so the scribe
- * defaults to Fable 5 rather than the fleet-wide worker default (Opus). An
- * explicit `--model` still overrides.
+ * `claude --help`). The former "smarter scribe" model tier has been disabled,
+ * so scribe/distill/memory workers now run on the fleet-wide Opus default like
+ * every other worker. The tiering lever is now EFFORT, not model:
+ * scribe/distill/memory run Opus at low effort while execution workers run it at
+ * xhigh. The explicit const is kept for clarity and an explicit `--model` still
+ * overrides.
  */
-const SCRIBE_MODEL = "fable";
+const SCRIBE_MODEL = "opus";
 
 export function claudeMdState(cwd: string): "missing" | "thin" | "present" {
   const p = claudeMdPath(cwd);

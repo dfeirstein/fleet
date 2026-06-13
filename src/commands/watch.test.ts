@@ -10,7 +10,7 @@ const row = (status: string): FleetRow => ({
   label: "w",
   workspace: "workspace:1",
   surface: "surface:1",
-  model: "fable",
+  model: "opus",
   status,
   task: "t",
   lastDispatchAt: "2026-06-09T05:00:00Z",
