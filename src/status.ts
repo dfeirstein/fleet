@@ -4,7 +4,7 @@
 // signal is a later phase). It classifies the live Claude Code TUI.
 import type { AgentStatus, Agent } from "./registry.js";
 import { target } from "./registry.js";
-import { readScreen, type Target } from "./cmux.js";
+import { readScreen, isGone, type Target } from "./cmux.js";
 
 const RATE_LIMIT = /(rate limit|usage limit|limit reached|too many requests|429)/i;
 const ERROR = /(error:|fatal|panic|uncaught|command not found|permission denied)/i;
@@ -36,13 +36,23 @@ export function classifyScreen(screen: string): AgentStatus {
   return "unknown";
 }
 
-/** Read a worker's terminal and classify it. Returns "dead" if it's gone. */
-export function probeStatus(t: Target, lines = 30): { status: AgentStatus; screen: string } {
+/** Read a worker's terminal and classify it. Fails CLOSED on a read error: only
+ *  cmux's `not_found` machine code (the surface is genuinely gone) yields "dead";
+ *  ANY other failure — busy socket, EAGAIN, a transient cmux hiccup — is
+ *  indeterminate → "unknown" → KEEP under supervision (CLAUDE.md existence-probe
+ *  rule), so a flaky read never silently drops a live worker from the wave digest
+ *  or lets `watch --until-idle` declare quiescence early. The reader is injectable
+ *  for tests. */
+export function probeStatus(
+  t: Target,
+  lines = 30,
+  read: (t: Target, lines?: number) => string = readScreen,
+): { status: AgentStatus; screen: string } {
   try {
-    const screen = readScreen(t, lines);
+    const screen = read(t, lines);
     return { status: classifyScreen(screen), screen };
-  } catch {
-    return { status: "dead", screen: "" };
+  } catch (e) {
+    return { status: isGone(e) ? "dead" : "unknown", screen: "" };
   }
 }
 

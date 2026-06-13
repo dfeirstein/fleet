@@ -15,7 +15,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, readdirSync, statSync, rmSync, readFileSync } from "node:fs";
-import { listSurfaces, listGridCells, cmuxJson, CmuxError } from "../cmux.js";
+import { listSurfaces, listGridCells, cmuxJson, isGone } from "../cmux.js";
 import { handle, type Agent } from "../registry.js";
 import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-record.js";
 
@@ -184,17 +184,12 @@ function cmuxReachable(): boolean {
 // The swallow-to-false helpers in cmux.ts can't tell "gone" from "cmux errored",
 // so a transient error would read as dead and `--apply` would delete a LIVE
 // session. These return a THIRD state, "unknown", for any non-`not_found` failure
-// — which maps to `unverifiable` → KEEP.
+// — which maps to `unverifiable` → KEEP. `isGone` (the not_found discriminator)
+// now lives in cmux.ts so the status probe shares the SAME tri-state check;
+// re-exported here for the existing gc tests.
+export { isGone };
 
 export type Existence = "present" | "absent" | "unknown";
-
-/** cmux tags a genuinely-gone workspace/surface with the machine code
- *  `not_found` (verified live: a missing workspace exits non-zero with
- *  `Error: not_found: Workspace not found`). Any OTHER failure — cmux crashed
- *  mid-sweep, socket/parse error — is indeterminate and must NOT read as gone. */
-export function isGone(err: unknown): boolean {
-  return err instanceof CmuxError && /not_found/.test(`${err.stderr} ${err.message}`);
-}
 
 /** Worker liveness: its workspace is present / absent / indeterminate. */
 function workspacePresence(workspace: string): Existence {

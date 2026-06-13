@@ -35,6 +35,16 @@ export class CmuxError extends Error {
   }
 }
 
+/** cmux tags a genuinely-gone workspace/surface with the machine code
+ *  `not_found` (verified live: a missing workspace exits non-zero with
+ *  `Error: not_found: Workspace not found`). Any OTHER failure — cmux crashed, a
+ *  socket/parse error, a busy helper — is indeterminate and must NOT read as gone.
+ *  The single tri-state discriminator shared by `gc` (keep vs remove) and the
+ *  status probe (unknown vs dead), so both fail closed on a transient error. */
+export function isGone(err: unknown): boolean {
+  return err instanceof CmuxError && /not_found/.test(`${err.stderr} ${err.message}`);
+}
+
 /** The resolved cmux binary path (for spawning long-lived subprocesses like the event stream). */
 export function cmuxBin(): string {
   return CMUX_BIN;
