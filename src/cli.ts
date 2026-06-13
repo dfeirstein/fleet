@@ -244,7 +244,7 @@ Commands:
                                              in a split pane of the focused
                                              workspace — up to a 2×2 quadrant;
                                              --model pins the Captain's model,
-                                             e.g. claude-fable-5)
+                                             e.g. claude-opus-4-8)
   daemon <start|stop|status|run>             Always-on supervisor: heartbeat,
                                              stuck/zombie detection, resource
                                              guardrails (sustained-CPU/RSS/health

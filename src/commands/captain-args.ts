@@ -62,7 +62,7 @@ export const CAPTAIN_HELP = `fleet captain|orchestrate [name] [options] — appo
 Options:
   --resume                Re-appoint an existing Captain (requires an explicit <name>)
   --split                 Spawn a fresh sibling Captain in a split pane of the focused workspace
-  --model <model>         Pin the Captain's model (e.g. claude-fable-5)
+  --model <model>         Pin the Captain's model (e.g. claude-opus-4-8)
   --no-daemon             Don't ensure the shared heartbeat daemon
   --command <cmd>         Override the launched program (testing / non-claude)
   --close-origin          (--split) close the origin runner tab after splitting
