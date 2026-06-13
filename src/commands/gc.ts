@@ -93,9 +93,11 @@ function daemonDir(): string {
 }
 
 // Root entries that are NEVER a session's residue — shared state, cross-session
-// learning history, and live-asset dirs. A "session" matching one of these names
-// is ignored so a name collision can never delete a protected dir.
-const RESERVED = new Set(["briefs", "browser-states", "daemon", "worktrees", "verify-artifacts"]);
+// learning history, live-asset dirs, and the legacy singleton Captain record
+// (`orchestrator.json`, whose own `session` field is the default, not
+// "orchestrator"). A "session" matching one of these names is ignored so a name
+// collision can never delete a protected dir/record.
+const RESERVED = new Set(["briefs", "browser-states", "daemon", "worktrees", "verify-artifacts", "orchestrator"]);
 
 function readdirSafe(dir: string): string[] {
   try {
@@ -136,7 +138,12 @@ export function discoverSessions(): string[] {
     if (name.endsWith(".state.json")) s = name.slice(0, -".state.json".length);
     else if (name.startsWith("orchestrator-") && name.endsWith(".json") && !name.startsWith("orchestrator-prompt-"))
       s = name.slice("orchestrator-".length, -".json".length);
-    else if (name.endsWith(".json") && !name.endsWith(".lock") && !name.startsWith("orchestrator-"))
+    else if (
+      name.endsWith(".json") &&
+      !name.endsWith(".lock") &&
+      !name.startsWith("orchestrator-") &&
+      name !== "orchestrator.json" // the legacy singleton Captain record — never a session (Bug 5)
+    )
       s = name.slice(0, -".json".length);
     if (s && isSessionName(s)) sessions.add(s);
   }
