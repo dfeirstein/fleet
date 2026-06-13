@@ -18,6 +18,12 @@ across parallel workers, building several pieces simultaneously, or running a
 long task in the background while staying interactive. For a single linear task,
 just do the work yourself; don't spawn a worker for it.
 
+**One capable worker often beats a multi-agent split.** Every worker is Opus 4.8
+— a high enough ceiling that one worker with a complete brief usually finishes
+what used to need several. Fan out for *genuine parallelism* (independent files,
+areas, candidates), not to compensate for a thin per-worker brief. Splitting a
+task that one worker could do in one pass just multiplies coordination cost.
+
 ## The command surface
 
 ```
@@ -100,18 +106,70 @@ Agents are matched by id, id-prefix, or label.
 1. **Decompose** the user's goal into independent worker tasks. Prefer tasks
    that touch *different files/areas* so workers don't fight over the same code.
 2. **Spawn** one worker per task: `fleet spawn --label <name> "<clear, self-contained task>"`.
-   Give each worker a complete brief — it can't see this conversation.
+   Brief each worker FULLY and ONCE — a complete first spec (goal, success
+   criteria, constraints, exact files, what "done" looks like). 4.8 rewards a
+   complete first turn and works best running on it; dribbling context across
+   `fleet send` corrections costs tokens and quality. It can't see this
+   conversation, so leave nothing implicit.
 3. **Monitor** with `fleet status` (shows ● running / ◉ idle / ◍ awaiting-input /
    ⏳ rate-limited / ✗ error). Read detail with `fleet read <agent>`.
-4. **Steer** mid-flight with `fleet send <agent> "<correction or follow-up>"`.
+4. **Steer** mid-flight with `fleet send <agent> "<correction or follow-up>"` —
+   for *new* information or a redirect, not to fill gaps a complete brief should
+   have covered.
 5. **Gate, then collect.** When workers go idle, run them through the proof
    gate (see below) before treating anything as done; then summarize for the
    user and `fleet kill` the finished workers (or `fleet kill --all` at the end).
 
-**Reasoning budget:** spend your turns deciding *how* to orchestrate, then hand
-off — if you've spent ~1–2 turns reading a codebase yourself without delegating,
-stop and spawn a worker. Dial reasoning effort to the decision (minimal for
+**Tier workers by EFFORT, not by model.** Every worker is Opus 4.8, so `effort`
+(+ Task Budgets) is your stratification lever, not model choice. Set it to the
+worker's role:
+- **`low`** — mechanical leaf work + scribe **scaffolding**: file reads, greps,
+  classification, fan-out leaves, seeding `.claude-docs/`, formatting. The docs
+  name subagents as a `low` use case; pair `low` with an explicit checklist if
+  the task has sections.
+- **`high`** — **distill / verify / memory** work, by default: it's
+  quality-sensitive (verification coverage + generalizing durable rules — the
+  reason memory work once ran on premium Fable), so don't starve it at `low`.
+  Drop toward `low` only if `fleet audit-docs` coverage holds there (the old
+  CL-Bench ~73% number was Fable-specific, not a transferable baseline).
+- **`medium`** — moderate tasks above leaf work but short of full execution
+  (a contained edit, a focused review). When calibrating a role, sweep
+  `medium`/`high`/`xhigh` on a real eval — the cost curve isn't monotonic.
+- **`xhigh`** — execution: coding, builds, long-horizon agentic work.
+- **`high`/`xhigh`** — the Captain itself (planning + delegation is
+  intelligence-sensitive and long-horizon).
+- Reserve **`max`** for a single genuinely-frontier sub-task you've measured.
+- Set `max_tokens ≥ 64K` on any `xhigh`/`max` worker so it doesn't truncate
+  mid-thought, and give long agentic loops a **Task Budget** (`task_budget`, min
+  20K) so the worker sees a countdown and wraps up gracefully instead of hitting
+  a silent ceiling.
+
+**Reasoning budget (your own turns):** spend them deciding *how* to orchestrate,
+then hand off — if you've spent ~1–2 turns reading a codebase yourself without
+delegating, stop and spawn a worker. Dial your effort to the decision (low for
 routing, high only for ambiguous decomposition), not to doing the work.
+
+**Force the capabilities 4.8 under-reaches for** — it favors reasoning over tool
+calls and won't fan out, search, or use file-memory unless told. In each brief,
+add the explicit trigger the worker needs:
+- *Subagents:* "Don't spawn a subagent for work you can finish in one response;
+  spawn several in the same turn only to fan out across independent items."
+- *Parallel tool calls:* "If you intend to call multiple tools with no
+  dependencies between them, make all the calls in parallel."
+- *Search:* "For anything where current info would change the answer (versions,
+  recent events, prices), search before answering rather than from memory."
+- *File memory:* "Check `.claude-docs/` / your memory file before starting; write
+  new findings back as you go; checkpoint with git."
+
+**Worker briefs run silent and self-moderate.** 4.8 narrates and asks more than
+prior models, which floods your transcript and stalls workers on the Captain. Put
+these in every brief:
+- *Silence default:* "Default to silence between tool calls. Write text only when
+  you find something, change direction, or hit a blocker — one sentence each.
+  Don't narrate routine actions. When done: one or two sentences on the outcome."
+- *Minor decisions — pick and note, don't ask:* "For minor choices (naming,
+  formatting, defaults, equivalent approaches) pick a reasonable option and note
+  it; don't ask. For scope changes or destructive actions, still ask first."
 
 To wait for a wave, run `fleet watch` in the background (run_in_background): it
 prints status transitions, mirrors state to the cmux sidebar, and exits the
@@ -239,7 +297,9 @@ makes every worker good *by default*. Three moves, backed by the
 - **`fleet bootstrap [--cwd P]`** — before building in a project that lacks a
   real CLAUDE.md, run this. It spawns a short-lived *scribe* worker that runs
   `claude-md-architect` (auto-detect for an existing repo, Q&A for greenfield),
-  seeds `.claude-docs/`, and writes a dated **Current Stack** version table.
+  seeds `.claude-docs/`, and writes a dated **Current Stack** version table. Its
+  scaffolding is `low`-effort work, but its **audit/distill pass is `high`** —
+  that pass is the quality-sensitive part (don't starve it).
 - **`fleet currency [--cwd P]`** — resolve the latest package versions / model
   IDs / API versions from authoritative live sources (npm, PyPI, a provider
   map) into `.claude-docs/currency.json`, cached with a 7-day TTL, with a drift
@@ -338,8 +398,12 @@ channel the daemon uses.
 
 Workers bill against the user's **Max plan quota** (5h + weekly limits), not
 per-token API credits — so there's no dollar cost, but N parallel Opus workers
-burn the shared allowance ~N× faster. If `fleet status` shows ⏳ rate-limited,
-back off concurrency or switch some workers to `--model haiku`. Keep concurrent
+burn the shared allowance ~N× faster. The primary lever to slow that burn is
+**effort**: run scribe/distill/memory/leaf workers at `low` and reserve
+`xhigh` for execution — high effort up front often *cuts* total turns, so it
+isn't simply "more expensive." Give long agentic workers a **Task Budget** so
+they self-moderate against a countdown. If `fleet status` shows ⏳ rate-limited,
+back off concurrency or drop some workers to `--model haiku`. Keep concurrent
 workers modest (≈3–4) unless the user wants a wider swarm.
 
 ## Notes
