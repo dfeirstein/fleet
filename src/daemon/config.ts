@@ -13,9 +13,7 @@ import {
   existsSync,
   renameSync,
   rmSync,
-  openSync,
-  closeSync,
-  writeSync,
+  statSync,
 } from "node:fs";
 import { DEFAULT_SESSION } from "../orchestrator-record.js";
 
@@ -163,24 +161,40 @@ export function sharedDaemonRunning(): boolean {
   return pid !== undefined && pidAlive(pid);
 }
 
+/** A shared lock older than this is treated as a dead holder's leftover and
+ *  broken; younger than this, an unreadable/empty pid means the holder is
+ *  mid-write — WAIT, don't break it (mirrors registry.ts:289-291). */
+const STALE_LOCK_MS = 5_000;
+
 /**
- * Atomically claim the single-instance lock. Returns true iff acquired. An
- * O_EXCL create means only one racing loop wins; a stale pid file (owner no
- * longer alive) is reclaimed once. The WINNER becomes the shared daemon; any
- * loser exits (see runLoop), so a double `--split` can never double-start.
+ * Atomically claim the single-instance lock. Returns true iff acquired. The pid
+ * is created+written in ONE O_EXCL write (`writeFileSync … {flag:"wx"}`) instead
+ * of a separate create-then-write, removing the empty-file window. On contention:
+ * a live owner keeps the lock; an empty/partial pid (owner mid-write) makes us
+ * WAIT — not break a fresh lock, only one that has aged past STALE_LOCK_MS (its
+ * holder is provably gone). The WINNER becomes the shared daemon; any loser exits
+ * (see runLoop), so a double `--split` can never double-start.
  */
 export function acquireSharedLock(): boolean {
   mkdirSync(fleetHome(), { recursive: true });
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const fd = openSync(sharedPidPath(), "wx"); // O_EXCL: fails if it exists
-      writeSync(fd, String(process.pid));
-      closeSync(fd);
+      writeFileSync(sharedPidPath(), String(process.pid), { flag: "wx" }); // O_EXCL create + pid in one call
       return true;
     } catch {
       const owner = readSharedDaemonPid();
       if (owner !== undefined && owner !== process.pid && pidAlive(owner)) return false; // live owner
-      // stale (or our own leftover) — drop it and retry once
+      // Empty/partial pid (owner undefined): the holder is mid-write between the
+      // O_EXCL create and the pid landing. WAIT — don't break a FRESH lock; only
+      // break one aged past stale (a crashed holder), exactly like registry.ts.
+      if (owner === undefined) {
+        try {
+          if (Date.now() - statSync(sharedPidPath()).mtimeMs < STALE_LOCK_MS) return false;
+        } catch {
+          /* vanished between the failed create and the stat — the retry will win */
+        }
+      }
+      // stale, our own leftover, or a dead owner — drop it and retry once
       try {
         rmSync(sharedPidPath());
       } catch {

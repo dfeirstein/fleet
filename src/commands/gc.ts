@@ -15,7 +15,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, readdirSync, statSync, rmSync, readFileSync } from "node:fs";
-import { listSurfaces, listGridCells, cmuxJson, CmuxError } from "../cmux.js";
+import { listSurfaces, listGridCells, cmuxJson, isGone } from "../cmux.js";
 import { handle, type Agent } from "../registry.js";
 import { loadAllOrchestrators, type OrchestratorRecord } from "../orchestrator-record.js";
 
@@ -93,9 +93,11 @@ function daemonDir(): string {
 }
 
 // Root entries that are NEVER a session's residue — shared state, cross-session
-// learning history, and live-asset dirs. A "session" matching one of these names
-// is ignored so a name collision can never delete a protected dir.
-const RESERVED = new Set(["briefs", "browser-states", "daemon", "worktrees", "verify-artifacts"]);
+// learning history, live-asset dirs, and the legacy singleton Captain record
+// (`orchestrator.json`, whose own `session` field is the default, not
+// "orchestrator"). A "session" matching one of these names is ignored so a name
+// collision can never delete a protected dir/record.
+const RESERVED = new Set(["briefs", "browser-states", "daemon", "worktrees", "verify-artifacts", "orchestrator"]);
 
 function readdirSafe(dir: string): string[] {
   try {
@@ -136,7 +138,12 @@ export function discoverSessions(): string[] {
     if (name.endsWith(".state.json")) s = name.slice(0, -".state.json".length);
     else if (name.startsWith("orchestrator-") && name.endsWith(".json") && !name.startsWith("orchestrator-prompt-"))
       s = name.slice("orchestrator-".length, -".json".length);
-    else if (name.endsWith(".json") && !name.endsWith(".lock") && !name.startsWith("orchestrator-"))
+    else if (
+      name.endsWith(".json") &&
+      !name.endsWith(".lock") &&
+      !name.startsWith("orchestrator-") &&
+      name !== "orchestrator.json" // the legacy singleton Captain record — never a session (Bug 5)
+    )
       s = name.slice(0, -".json".length);
     if (s && isSessionName(s)) sessions.add(s);
   }
@@ -184,17 +191,12 @@ function cmuxReachable(): boolean {
 // The swallow-to-false helpers in cmux.ts can't tell "gone" from "cmux errored",
 // so a transient error would read as dead and `--apply` would delete a LIVE
 // session. These return a THIRD state, "unknown", for any non-`not_found` failure
-// — which maps to `unverifiable` → KEEP.
+// — which maps to `unverifiable` → KEEP. `isGone` (the not_found discriminator)
+// now lives in cmux.ts so the status probe shares the SAME tri-state check;
+// re-exported here for the existing gc tests.
+export { isGone };
 
 export type Existence = "present" | "absent" | "unknown";
-
-/** cmux tags a genuinely-gone workspace/surface with the machine code
- *  `not_found` (verified live: a missing workspace exits non-zero with
- *  `Error: not_found: Workspace not found`). Any OTHER failure — cmux crashed
- *  mid-sweep, socket/parse error — is indeterminate and must NOT read as gone. */
-export function isGone(err: unknown): boolean {
-  return err instanceof CmuxError && /not_found/.test(`${err.stderr} ${err.message}`);
-}
 
 /** Worker liveness: its workspace is present / absent / indeterminate. */
 function workspacePresence(workspace: string): Existence {

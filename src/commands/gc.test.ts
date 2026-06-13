@@ -1,9 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   planGc,
   sessionLiveness,
   isGone,
+  discoverSessions,
   type SessionLiveness,
   type LivenessProbes,
   type Existence,
@@ -129,6 +133,46 @@ test("a live Captain surface (present) keeps the session", () => {
   const s = sessionLiveness("s", probes({ orchestrators: [REC], surface: () => "present" }));
   assert.equal(s.captain, "live");
   assert.equal(decide(s).action, "keep");
+});
+
+// ── discoverSessions excludes the legacy singleton (Bug 5, bughunt 2026-06-13) ─
+// `~/.fleet/orchestrator.json` is the pre-split Captain record (its own `session`
+// is the default "yoshi", not "orchestrator"). The generic-branch matcher derived
+// session "orchestrator" from it; the lookup then missed (no record has
+// session==="orchestrator"), so the live Captain didn't protect it → planGc said
+// "remove" → gc --apply rmSync'd the Captain's record. The fix excludes the bare
+// singleton from discovery (and adds "orchestrator" to RESERVED).
+
+test("discoverSessions: the legacy singleton orchestrator.json is NOT a gc-eligible session", () => {
+  const realHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "fleet-gc-"));
+  process.env.HOME = home; // redirects fleetDir() → <home>/.fleet
+  try {
+    const fleet = join(home, ".fleet");
+    mkdirSync(fleet, { recursive: true });
+    // The pre-split Captain record — note session "yoshi", not "orchestrator".
+    writeFileSync(
+      join(fleet, "orchestrator.json"),
+      JSON.stringify({
+        name: "cap",
+        session: "yoshi",
+        workspaceId: "ws-1",
+        surfaceId: "sf-1",
+        workspaceRef: "workspace:1",
+        declaredAt: "2026-06-13T00:00:00Z",
+      }),
+    );
+    // An ordinary registry session alongside it, to prove discovery still works.
+    writeFileSync(join(fleet, "realsession.json"), JSON.stringify({ session: "realsession", agents: {} }));
+
+    const sessions = discoverSessions();
+    assert.ok(!sessions.includes("orchestrator"), "the legacy singleton is never enumerated as a session");
+    assert.ok(sessions.includes("realsession"), "ordinary registry sessions are still discovered");
+  } finally {
+    if (realHome === undefined) delete process.env.HOME;
+    else process.env.HOME = realHome;
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("each session is decided independently", () => {
