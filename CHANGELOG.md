@@ -5,6 +5,7 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 ## Unreleased
 
 ### Changed
+- **CI: bump `actions/checkout` + `actions/setup-node` `@v4`→`@v6`** (resolved latest: checkout v6.0.3, setup-node v6.4.0) — the v4 actions ran their JS on Node 20, which GitHub force-migrates to Node 24 on 2026-06-16 (would break CI); v6 runs natively on Node 24.
 - **Fable 5 → Opus 4.8 (Anthropic disabled Fable 5, 2026-06-13)**: `bootstrap.ts` `SCRIBE_MODEL` moves `"fable"→"opus"` — the old default was orphaned (Fable isn't in `versions.md`) and spawned scribe/distill/memory workers on a dead model. The two-tier model split (smarter Fable scribe over Opus execution) collapses; the new worker-tiering lever is **`effort`** (scribe scaffolding + leaf `low`, distill/verify/memory `high`, execution `xhigh`, Captain `high`/`xhigh`) — see `docs/doctrine-deltas/2026-06-13-effort-tiering.md`. Help-text/comment examples (`cli.ts`, `captain-args.ts`, `orchestrate.ts`) and test fixtures (`captain-args.test.ts`, `watch.test.ts`) updated `claude-fable-5`/`fable` → `claude-opus-4-8`/`opus`. Typecheck clean, 319/319 tests pass.
 
 ### Docs
