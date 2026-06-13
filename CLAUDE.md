@@ -74,6 +74,7 @@ gate, `gc` planning, daemon selfheal, autoupdate, captain-args) — run with `np
 - **Existence probes must distinguish `not_found` from transient errors** — model them `present|absent|unknown`;
   only cmux's `not_found` machine code means gone, any other failure is `unknown` → KEEP (fail closed — a flaky
   probe must never read as dead). Verified: PR #46 `planGc` tests.
+- **A guard on one path belongs on every sibling** — when you add a fail-closed / re-load-before-write / not_found-tristate guard, grep for the sibling that skipped it; that asymmetry *is* the bug. Observed: bughunt 2026-06-13 — all 5 HIGH bugs were one documented guard present on one path, missing on its twin.
 - `noUncheckedIndexedAccess` is on — array/record indexing is `T | undefined`; handle it.
 - **Never write a version/model ID/API shape from memory** — see Currency below.
 - IMPORTANT: a generator never grades its own work; route verification through a *separate*
