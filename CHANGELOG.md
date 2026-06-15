@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Changed
+- **Daemon heartbeat is now ONE rich consolidated line per beat** (captain-attributed worker-status breakdown, beat #, compact uptime, actions-this-beat, telemetry) via a pure, unit-tested `src/daemon/beat-format.ts` — replaces the two bare lines (per-captain `N agents` + per-cycle `N captains`, which read as flapping because `beat()` runs once per captain). `beat()` now RETURNS a `CaptainBeatSummary` and `doBeat()` aggregates + formats once; an errored captain is rendered `✗beat-error`, not dropped; ANSI color is opt-in and TTY-gated so pipes stay clean. Observability only — no supervision-behavior change. `node:test` `beat-format.test.ts` (16 cases); 360/360 pass.
+
 ## 2026-06-15
 
 ### Added
