@@ -15,7 +15,6 @@ set -euo pipefail
 REPO="${FLEET_REPO:-https://github.com/dfeirstein/fleet.git}"
 BRANCH="${FLEET_BRANCH:-main}"
 DEST="${FLEET_INSTALL_DIR:-$HOME/.local/share/fleet}"
-SKILL_LINK="$HOME/.claude/skills/fleet"
 
 echo "── fleet installer ──"
 
@@ -52,16 +51,13 @@ fi
 echo "→ npm ci"
 ( cd "$DEST" && npm ci --silent ) || ( cd "$DEST" && npm install --no-audit --no-fund --silent )
 
-# ── Back up a pre-existing REAL skill dir before symlinking over it ──────────
-# (a correct symlink is left as-is; a real dir is preserved to a timestamped .bak
-#  so re-running never silently destroys a hand-edited skill.)
-if [ -e "$SKILL_LINK" ] && [ ! -L "$SKILL_LINK" ]; then
-  BAK="$SKILL_LINK.$(date +%Y%m%d-%H%M%S).bak"
-  mv "$SKILL_LINK" "$BAK"
-  echo "→ backed up existing skill dir → $BAK"
-fi
+# ── Skill backup is owned by `fleet setup` ──────────────────────────────────
+# setup.ts backs up a pre-existing REAL skill dir (for EVERY repo skill) to a
+# timestamped .bak before symlinking, and leaves a correct symlink untouched —
+# so re-running never silently destroys a hand-edited skill. (No per-skill
+# backup loop needed here; one source of truth in src/commands/setup.ts.)
 
-# ── Link fleet onto PATH + install the skill (idempotent; see src/commands/setup.ts) ──
+# ── Link fleet onto PATH + install the skills (idempotent; see src/commands/setup.ts) ──
 chmod +x "$DEST/bin/fleet"
 echo "→ linking fleet + skill"
 FLEET_NO_AUTOUPDATE=1 "$DEST/bin/fleet" setup

@@ -17,6 +17,7 @@ import { loadOrchestrator } from "../orchestrator-record.js";
 import { readSharedState, pidAlive } from "../daemon/config.js";
 import { hookSessionsPath, readHookSessions, findSession } from "../cmux-sessions.js";
 import { listAgents } from "../registry.js";
+import { REPO_SKILLS } from "./setup.js";
 
 function ok(label: string, detail = ""): void {
   console.log(`  ✓ ${label}${detail ? ` — ${detail}` : ""}`);
@@ -54,9 +55,11 @@ export function doctor(): void {
   else if (!onPath) bad("fleet linked but ~/.local/bin not on PATH", 'add: export PATH="$HOME/.local/bin:$PATH"');
   else ok("fleet on PATH");
 
-  // skill
-  if (existsSync(join(home, ".claude", "skills", "fleet"))) ok("fleet skill installed");
-  else bad("fleet skill not installed", "run: fleet setup");
+  // skills (each ships from the repo + symlinks into ~/.claude/skills via `fleet setup`)
+  for (const name of REPO_SKILLS) {
+    if (existsSync(join(home, ".claude", "skills", name))) ok(`${name} skill installed`);
+    else bad(`${name} skill not installed`, "run: fleet setup");
+  }
 
   // install mode (the self-updating checkout: where, which branch, how current)
   const checkout = fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
