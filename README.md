@@ -37,9 +37,7 @@ English and it spawns, steers, and verifies worker Claude sessions across your
 repos for you.
 
 > *Notes:* `<your-name>` just badges the workspace — omit it and it's "Captain".
-> `fleet orchestrate` and `fleet captain` are the same command. Prefer plain
-> English? You can instead tell Claude **“install fleet and launch my captain”**
-> and it'll run the two commands for you.
+> `fleet orchestrate` and `fleet captain` are the same command.
 
 The installer checks for cmux/Node 20+/git, clones fleet to `~/.local/share/fleet`
 (or fast-forward-pulls it if already there), installs deps (no build step — TS runs
