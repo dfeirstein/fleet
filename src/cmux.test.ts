@@ -3,7 +3,8 @@
 // transcript text can't cause spurious retry-Enters. Run with `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inputBoxRegion, helpListsVerb } from "./cmux.js";
+import { inputBoxRegion, helpListsVerb, surfaceState, CmuxError } from "./cmux.js";
+import type { GridCell } from "./cmux.js";
 
 const MSG = "fix the login bug in auth.ts";
 
@@ -75,4 +76,53 @@ test("helpListsVerb: an older cmux without the verbs gates OFF (fail-safe)", () 
 
 test("helpListsVerb: a mid-line mention is not a command listing", () => {
   assert.equal(helpListsVerb("  send <text>  (see also wait-for)", "wait-for"), false);
+});
+
+// surfaceState — the tri-state probe under surfaceExists. The bug: surfaceExists
+// returned `false` on ANY listGridCells throw, so a transient cmux error read a
+// LIVE Captain surface as dead → the daemon self-heal re-stamped onto a doomed
+// surface → captain-supervision flapping. Fix: only a genuine `not_found` →
+// "absent" (dead); any other throw → "unknown" → surfaceExists KEEPs (fail
+// closed). The lister is injected so the classification is testable without cmux.
+const TARGET = { workspace: "ws-1", surface: "surf-live" };
+const cell = (surfaceId: string): GridCell => ({
+  paneRef: "p", surfaceRef: "r", surfaceId, workspaceId: "ws-1", type: "terminal",
+});
+// surfaceExists's exact derivation, mirrored so each case asserts the boolean too.
+const exists = (s: ReturnType<typeof surfaceState>) => s !== "absent";
+
+test("surfaceState: listing includes the surface → present (surfaceExists true)", () => {
+  const s = surfaceState(TARGET, () => [cell("surf-other"), cell("surf-live")]);
+  assert.equal(s, "present");
+  assert.equal(exists(s), true);
+});
+
+test("surfaceState: listing succeeds WITHOUT the surface → absent (surfaceExists false)", () => {
+  const s = surfaceState(TARGET, () => [cell("surf-other")]);
+  assert.equal(s, "absent");
+  assert.equal(exists(s), false);
+});
+
+test("surfaceState: a transient (non-not_found) throw → unknown (surfaceExists true — THE fix)", () => {
+  const s = surfaceState(TARGET, () => {
+    throw new CmuxError("busy", ["list-panes"], "Error: invalid_params: Surface is not a terminal");
+  });
+  assert.equal(s, "unknown");
+  assert.equal(exists(s), true); // a flaky probe must NEVER read a live surface as dead
+});
+
+test("surfaceState: a not_found throw → absent (surfaceExists false — genuine teardown still reaps)", () => {
+  const s = surfaceState(TARGET, () => {
+    throw new CmuxError("gone", ["list-panes"], "Error: not_found: Workspace not found");
+  });
+  assert.equal(s, "absent");
+  assert.equal(exists(s), false);
+});
+
+test("surfaceState: a non-CmuxError throw → unknown (fail closed on an unexpected error)", () => {
+  const s = surfaceState(TARGET, () => {
+    throw new Error("ECONNRESET");
+  });
+  assert.equal(s, "unknown");
+  assert.equal(exists(s), true);
 });
