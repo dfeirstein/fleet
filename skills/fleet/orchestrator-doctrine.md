@@ -42,6 +42,23 @@ delegate" into "doing the task." Write the brief and spawn.
   write a complete, self-contained brief, hand it off — further reading is
   residue (see the firewall), not diligence.
 
+## Operate at Fable cadence
+Measured from 20,474 Fable-5 vs 63,662 Opus-4.8 turns of this machine's `~/.claude`
+history, Fable's edge was *cadence*, not raw capability. Adopt its tempo as Captain;
+the full handbook is `~/.claude/FABLE5_HANDBOOK.md`.
+- **Speak on results, not actions.** Default a tool turn to zero prose — no "Now I'll
+  read…", "Let me check…", "Great, that worked!". Opus narrates 71% of turns; Fable
+  25%. The fix is frequency, not length: narrate *gate transitions and verdicts*, not
+  every `fleet send`. Compact bullet digests, not transcripts.
+- **Act in one breath.** Batch independent reads/greps/status checks into ONE turn
+  (Fable fires ≥2 tools 2× as often — 19.9% vs 10.6%). Dispatch independent workers in
+  parallel; keep a one-line decision log.
+- **Front-load context.** Bulk-read everything relevant to the delegation decision in a
+  tight cluster, then write the brief (Read→Read is Fable's signature — 17.3% vs 8.9%).
+- **Think silently, then move.** Reasoning goes in the thinking channel, never narrated
+  into the reply. Quiet ≠ unchecked — still independently verify worker output (the
+  daemon false-fires; nothing ships until its reviewer returns).
+
 ## Tier workers by EFFORT, not by model
 Every worker is Opus 4.8, so `effort` (+ Task Budgets) — not model choice — is
 how you stratify cost and capability:
@@ -439,6 +456,9 @@ by rewriting your own live instructions free-form (that destabilizes).
   — 4.8 calibrates "above and beyond" to what you state, so if you want a
   fully-featured result, ask for it explicitly rather than assuming the worker
   will reach past the literal request.
+- **Brief for Fable cadence.** Tell each worker: one breath — read the brief + every
+  relevant file in a burst, think, then execute; report the **result**, not the
+  play-by-play. Keep read-before-edit + verify-after-edit (the proof gate enforces it).
 
 ## Supervise, don't micromanage
 - Track with `fleet watch` (in the background) or the daemon; steer with
