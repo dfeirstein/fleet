@@ -23,6 +23,44 @@ export function familyOf(session: string): string {
   return session.replace(/-\d+$/, "");
 }
 
+/**
+ * Re-point STALE-but-recoverable Captain records to their live workspace cell
+ * before the slot decision — the missing sibling of PR #59's guard. chooseCaptainSlot
+ * decides liveness via `isLive(record.surfaceId)`, but a Captain relaunched in-pane
+ * (or hit by durable-map lag) carries a stale `surfaceId`, so a LIVE Captain reads
+ * as not-live: the slot collapses to the bare family name and `--split` clobbers its
+ * record with a clone. Reconciling first makes `isLive` accurate so the uniqueness
+ * guard can do its job.
+ *
+ * Mirrors `decideSelfHeal`'s fail-closed rule exactly: a record whose own surface is
+ * dead but whose workspace has EXACTLY ONE live cell not already owned by another
+ * live-surfaced record is re-stamped to that cell; zero or ambiguous (>1) candidates
+ * leave the record untouched (don't guess — the slot logic then treats it as not-live,
+ * correct when the Captain is genuinely gone, and the daemon self-heal escalates).
+ *
+ * Pure — cmux liveness + cell listing are injected. Returns the SAME records in order
+ * (never reorders/drops); only a recovered `surfaceId` is rewritten. Callers persist
+ * any re-stamp via `writeOrchestrator` so the on-disk record self-corrects too.
+ */
+export function reconcileStaleRecords(input: {
+  records: CaptainSlotRecord[];
+  liveCells: (workspaceId: string) => string[];
+  isLive: (r: { workspaceId: string; surfaceId: string }) => boolean;
+}): CaptainSlotRecord[] {
+  const { records, liveCells, isLive } = input;
+  return records.map((r) => {
+    if (isLive(r)) return r; // surface already live → unchanged (the happy path).
+    // Live cells in r's workspace NOT already claimed by another LIVE-surfaced record
+    // (never re-stamp onto a sibling Captain's pane).
+    const claimed = new Set(
+      records.filter((o) => o !== r && o.workspaceId === r.workspaceId && isLive(o)).map((o) => o.surfaceId),
+    );
+    const candidates = [...new Set(liveCells(r.workspaceId).filter((s) => s && !claimed.has(s)))];
+    if (candidates.length === 1) return { ...r, surfaceId: candidates[0]! };
+    return r; // zero or ambiguous → fail closed.
+  });
+}
+
 /** The quadrant index of a session within its family: base is #1, `-N` siblings are N. */
 export function indexOf(session: string, family: string): number {
   if (session === family) return 1;
