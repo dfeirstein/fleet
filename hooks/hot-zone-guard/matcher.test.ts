@@ -62,6 +62,97 @@ test("BLOCK: Write to an aws-credentials file", () => {
   assert.equal(write("/repo/aws-credentials.json").block, true);
 });
 
+// ---------------------------------------------------------------------------
+// BLOCK — cross-model (Codex) adversarial pass: 11 closed detection gaps.
+// ---------------------------------------------------------------------------
+
+test("BLOCK gap1: force-push via + refspec (+HEAD:main)", () => {
+  assert.equal(bash("git push origin +HEAD:main").block, true);
+});
+test("BLOCK gap1: force-push via + refspec (+main)", () => {
+  assert.equal(bash("git push origin +main").block, true);
+});
+test("BLOCK gap1: force-push via + refspec (+refs/heads/main)", () => {
+  assert.equal(bash("git push origin +refs/heads/main").block, true);
+});
+test("BLOCK gap2: git -C repo push --force origin main", () => {
+  assert.equal(bash("git -C repo push --force origin main").block, true);
+});
+test("BLOCK gap2: git -c push.default=current push --force origin main", () => {
+  assert.equal(bash("git -c push.default=current push --force origin main").block, true);
+});
+test("BLOCK gap3: rm -rf \"$HOME\" (double-quoted)", () => {
+  assert.equal(bash('rm -rf "$HOME"').block, true);
+});
+test("BLOCK gap3: rm -rf '~' (single-quoted)", () => {
+  assert.equal(bash("rm -rf '~'").block, true);
+});
+test("BLOCK gap3: rm -rf \"/\" (quoted root)", () => {
+  assert.equal(bash('rm -rf "/"').block, true);
+});
+test("BLOCK gap3: rm -rf \"${HOME}\" (braced var)", () => {
+  assert.equal(bash('rm -rf "${HOME}"').block, true);
+});
+test("BLOCK gap4: rm -rf $HOME/* (home glob)", () => {
+  assert.equal(bash("rm -rf $HOME/*").block, true);
+});
+test("BLOCK gap4: rm -rf ~/* (home glob)", () => {
+  assert.equal(bash("rm -rf ~/*").block, true);
+});
+test("BLOCK gap4: rm -rf $HOME/ (trailing slash)", () => {
+  assert.equal(bash("rm -rf $HOME/").block, true);
+});
+test("BLOCK gap4: rm -rf \"${HOME}\"/* (quoted braced home glob)", () => {
+  assert.equal(bash('rm -rf "${HOME}"/*').block, true);
+});
+test("BLOCK gap6: git reset --hard upstream/main (non-origin remote)", () => {
+  assert.equal(bash("git reset --hard upstream/main").block, true);
+});
+test("BLOCK gap7: git -C repo reset --hard origin/main (global opt)", () => {
+  assert.equal(bash("git -C repo reset --hard origin/main").block, true);
+});
+test("BLOCK gap8: second redirect target is a secret (cmd > log > .env)", () => {
+  assert.equal(bash("dump > log > .env").block, true);
+});
+test("BLOCK gap9: single-quoted redirect target (echo x > '.env')", () => {
+  assert.equal(bash("echo x > '.env'").block, true);
+});
+test("BLOCK gap10: SQL comment between keywords (DROP /*x*/ TABLE)", () => {
+  assert.equal(bash('psql -c "DROP /*x*/ TABLE orders"').block, true);
+});
+test("BLOCK gap11: case-insensitive secret path (server.PEM)", () => {
+  assert.equal(write("/repo/certs/server.PEM").block, true);
+});
+test("BLOCK gap11: case-insensitive secret path (.ENV.local)", () => {
+  assert.equal(write("/repo/.ENV.local").block, true);
+});
+
+// ---------------------------------------------------------------------------
+// ALLOW — false-positive guards for the cross-model pass (MUST stay block:false).
+// ---------------------------------------------------------------------------
+
+test("ALLOW: git reset --hard feature/foo (local branch with slash)", () => {
+  assert.equal(bash("git reset --hard feature/foo").block, false);
+});
+test("ALLOW: rm -rf ~/project/dist (named home subpath)", () => {
+  assert.equal(bash("rm -rf ~/project/dist").block, false);
+});
+test("ALLOW: rm -rf $HOME/project/dist (named home subpath)", () => {
+  assert.equal(bash("rm -rf $HOME/project/dist").block, false);
+});
+test("ALLOW: git push origin develop (non-force, non-main)", () => {
+  assert.equal(bash("git push origin develop").block, false);
+});
+test("ALLOW: git push origin feature (no force)", () => {
+  assert.equal(bash("git push origin feature").block, false);
+});
+test("ALLOW: write .env.EXAMPLE (case-insensitive template)", () => {
+  assert.equal(write("/repo/.env.EXAMPLE").block, false);
+});
+test("ALLOW: truncate -s 0 bigfile.log (Unix truncate, not SQL)", () => {
+  assert.equal(bash("truncate -s 0 bigfile.log").block, false);
+});
+
 // Each block carries a non-empty reason.
 test("a blocked decision carries a reason", () => {
   const d = bash("git push --force origin main");
