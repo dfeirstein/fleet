@@ -13,44 +13,31 @@ rebuilt as a thin CLI you drive from any project in plain language.
 
 ---
 
-## Zero to Captain — 4 steps
+## Zero to Captain
 
-You don't wire anything up by hand. You install one terminal, launch Claude, and
-ask it — in plain English — to set up the rest.
+Three steps — two are copy-paste. No hand-wiring, no guessing.
 
-### 1. Install cmux
+**1. Install cmux** *(one time)* — the GPU-accelerated terminal Fleet runs on.
+Download the macOS app from **[cmux.com](https://cmux.com)** (source:
+[manaflow-ai/cmux](https://github.com/manaflow-ai/cmux)).
 
-cmux is the GPU-accelerated terminal Fleet runs on. Download the macOS app from
-**[cmux.com](https://cmux.com)** (source: [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux)).
+**2. Open cmux and sign into Claude** — type `claude`, log in once with your
+**Claude subscription (Pro / Max / Team) or API key**. Every worker the Captain
+spawns is a real Claude Code session that inherits this auth.
 
-### 2. Open cmux and type `claude`
-
-Claude Code launches right inside a cmux terminal. Log in with your **Claude
-subscription (Pro / Max / Team) or API key** — every worker the Captain spawns
-is a real Claude Code session that inherits the same auth.
-
-### 3. Tell Claude:
-
-> **“clone fleet and launch my captain.”**
-
-### 4. That's it.
-
-Claude clones Fleet, installs it, runs a health check, and hands you a badged
-**⚓ Captain** workspace. From there you talk to the Captain in plain language and
-it runs the fleet for you.
-
----
-
-### What that one sentence resolves to
-
-“clone fleet and launch my captain” is all you say — Claude runs the one-liner
-below and drops you into a Captain session. It's also a copy-paste path if you'd
-rather do it yourself:
+**3. Paste these two commands into a cmux terminal:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dfeirstein/fleet/main/install.sh | bash
-fleet captain                   # launches "⚓ <YourName>" — your Fleet Captain workspace
+fleet orchestrate <your-name>     # e.g. `fleet orchestrate doug` — launches your ⚓ Captain
 ```
+
+**That's it.** You land in a badged **⚓ Captain** workspace — talk to it in plain
+English and it spawns, steers, and verifies worker Claude sessions across your
+repos for you.
+
+> *Notes:* `<your-name>` just badges the workspace — omit it and it's "Captain".
+> `fleet orchestrate` and `fleet captain` are the same command.
 
 The installer checks for cmux/Node 20+/git, clones fleet to `~/.local/share/fleet`
 (or fast-forward-pulls it if already there), installs deps (no build step — TS runs
