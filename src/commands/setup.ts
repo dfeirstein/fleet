@@ -3,7 +3,7 @@
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { mkdirSync, existsSync, lstatSync, readlinkSync, symlinkSync, unlinkSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { mkdirSync, existsSync, lstatSync, readlinkSync, symlinkSync, unlinkSync, renameSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { reloadConfig } from "../cmux.js";
 import {
   cmuxConfigPath,
@@ -19,6 +19,11 @@ function repoRoot(): string {
   // src/commands/setup.ts → ../../ = repo root
   return fileURLToPath(new URL("../../", import.meta.url)).replace(/\/$/, "");
 }
+
+// Repo skills that ship from `skills/<name>` and get symlinked into
+// `~/.claude/skills/<name>` so Claude Code discovers them AND they ride fleet's
+// auto-update. Adding the next skill is a one-line append here.
+export const REPO_SKILLS = ["fleet", "elite-design"] as const;
 
 function isSymlink(p: string): boolean {
   try {
@@ -58,6 +63,27 @@ function report(what: string, where: string, r: LinkResult): void {
 /** Timestamp suffix for the config backup, safe in a filename. */
 function backupStamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+/**
+ * Symlink a repo skill into `~/.claude/skills/<name>`, idempotently.
+ * A correct symlink is left untouched; a pre-existing REAL dir (a hand-edited or
+ * pre-shipped copy) is moved to a timestamped `.bak` first, so re-running never
+ * silently destroys it before linking. Returns the underlying `link()` result.
+ */
+function linkSkill(root: string, home: string, name: string): LinkResult {
+  const target = join(root, "skills", name);
+  const linkPath = join(home, ".claude", "skills", name);
+  // Back up a real dir (not a symlink) before link() — otherwise link() would
+  // see it as a conflict and refuse, leaving the skill un-updatable.
+  if (existsSync(linkPath) && !isSymlink(linkPath)) {
+    const bak = `${linkPath}.${backupStamp()}.bak`;
+    renameSync(linkPath, bak);
+    console.log(`  ✓ backed up existing ${name} skill dir → ${bak}`);
+  }
+  const r = link(target, linkPath);
+  report(`${name} skill`, linkPath, r);
+  return r;
 }
 
 /**
@@ -137,7 +163,7 @@ export function setup(opts: { hotkey?: boolean; dock?: boolean } = {}): void {
   console.log("fleet setup");
 
   report("fleet on PATH", join(home, ".local", "bin", "fleet"), link(join(root, "bin", "fleet"), join(home, ".local", "bin", "fleet")));
-  report("skill", join(home, ".claude", "skills", "fleet"), link(join(root, "skills", "fleet"), join(home, ".claude", "skills", "fleet")));
+  for (const name of REPO_SKILLS) linkSkill(root, home, name);
 
   const localBin = join(home, ".local", "bin");
   if (!(process.env.PATH ?? "").split(":").includes(localBin)) {

@@ -4,6 +4,9 @@ All notable changes to fleet. Format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+- **`elite-design` ships as a repo skill** — the UX/UI craft-floor skill now lives at `skills/elite-design/` (SKILL.md + 7 references) and rides fleet's install + auto-update like `skills/fleet/`. `setup.ts` generalizes the single hardcoded fleet-skill symlink into a `REPO_SKILLS` list (`["fleet","elite-design"]`) it loops over — each skill backs up a pre-existing REAL `~/.claude/skills/<name>` dir to a timestamped `.bak` before symlinking and leaves a correct symlink untouched (fleet behavior preserved byte-for-byte). `install.sh` drops its single-skill backup block (now owned by `setup.ts`, one source of truth) and `fleet doctor` checks every `REPO_SKILLS` entry. Adding the next skill is a one-line append. Companion doctrine PR #55.
+
 ### Changed
 - **CI: bump `actions/checkout` + `actions/setup-node` `@v4`→`@v6`** (resolved latest: checkout v6.0.3, setup-node v6.4.0) — the v4 actions ran their JS on Node 20, which GitHub force-migrates to Node 24 on 2026-06-16 (would break CI); v6 runs natively on Node 24.
 - **Fable 5 → Opus 4.8 (Anthropic disabled Fable 5, 2026-06-13)**: `bootstrap.ts` `SCRIBE_MODEL` moves `"fable"→"opus"` — the old default was orphaned (Fable isn't in `versions.md`) and spawned scribe/distill/memory workers on a dead model. The two-tier model split (smarter Fable scribe over Opus execution) collapses; the new worker-tiering lever is **`effort`** (scribe scaffolding + leaf `low`, distill/verify/memory `high`, execution `xhigh`, Captain `high`/`xhigh`) — see `docs/doctrine-deltas/2026-06-13-effort-tiering.md`. Help-text/comment examples (`cli.ts`, `captain-args.ts`, `orchestrate.ts`) and test fixtures (`captain-args.test.ts`, `watch.test.ts`) updated `claude-fable-5`/`fable` → `claude-opus-4-8`/`opus`. Typecheck clean, 319/319 tests pass.
