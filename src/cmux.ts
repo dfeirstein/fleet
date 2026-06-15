@@ -346,15 +346,37 @@ export function workspaceExists(workspace: string): boolean {
   }
 }
 
-/** True if a specific surface (pane) still exists within its workspace. Quiet
- *  for the same reason as workspaceExists — an absent workspace/surface is an
- *  expected answer, not an error worth printing. */
-export function surfaceExists(target: { workspace: string; surface: string }): boolean {
+/** Tri-state surface liveness — the testable core of surfaceExists. A genuinely
+ *  gone workspace/surface (cmux's `not_found`) is "absent"; the listing
+ *  succeeding without a matching cell is also "absent"; ANY other listing
+ *  failure (cmux busy during concurrent spawns, `Surface is not a terminal`, a
+ *  socket/parse hiccup) is "unknown" and must NOT read as gone. The lister is
+ *  injectable for tests. Quiet for the same reason as workspaceExists — a clean
+ *  not_found is an expected answer, not an error worth printing. */
+export type SurfaceState = "present" | "absent" | "unknown";
+export function surfaceState(
+  target: { workspace: string; surface: string },
+  list: (workspace: string, opts?: CmuxOpts) => GridCell[] = listGridCells,
+): SurfaceState {
+  let cells: GridCell[];
   try {
-    return listGridCells(target.workspace, { quietStderr: true }).some((c) => c.surfaceId === target.surface);
-  } catch {
-    return false;
+    cells = list(target.workspace, { quietStderr: true });
+  } catch (e) {
+    // Only a real not_found means the workspace/surface is genuinely gone; every
+    // other failure is transient/unknown (CLAUDE.md not_found-vs-transient guard,
+    // the twin of planGc's discriminator, PR #46) — reuse the shared isGone.
+    return isGone(e) ? "absent" : "unknown";
   }
+  return cells.some((c) => c.surfaceId === target.surface) ? "present" : "absent";
+}
+
+/** True if a specific surface (pane) still exists within its workspace. Fails
+ *  CLOSED: present OR unknown reads as live; only a genuine "absent" reads as
+ *  dead — so a transient probe error never drops a LIVE Captain (which would let
+ *  the daemon self-heal re-stamp its record onto a doomed surface → the
+ *  captain-supervision flapping). */
+export function surfaceExists(target: { workspace: string; surface: string }): boolean {
+  return surfaceState(target) !== "absent";
 }
 
 export interface NewWorkspaceResult {
