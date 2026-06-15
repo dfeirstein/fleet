@@ -227,6 +227,24 @@ including low-confidence ones, for a downstream filter** rather than pre-filteri
 for severity itself; 4.8 applies a "only high-severity" instruction literally and
 will under-report.
 
+**For high-stakes work also judge ≠ generator's MODEL — route the critic to a
+different model.** The default verifier above is a separate *Claude* in fresh
+context — that breaks self-preference, but a same-model judge still shares the
+generator's **blind spots**: a subtle bug Claude is *systematically* wrong about,
+Claude will likely also miss when grading. So for work where Claude could be
+systematically wrong (subtle correctness on a hard algorithm, security/crypto,
+tricky concurrency, a numerical edge), or where the cost-of-error is high, escalate
+the critic to a **different model** — the `codex` skill (OpenAI Codex: `codex
+review` / `codex challenge`) — so two independent systems must agree before "done"
+(a Codex *disagreement* is a hard signal to dig in, not to override). This is a
+SCOPED escalation, not the default tax: routine work is fine with a same-model
+adversarial fresh-context Claude judge; reach for the cross-model critic only when
+the failure mode is one Claude would likely share with itself, or the blast radius
+is large. Frame: judge ≠ generator, and for high-stakes work also judge ≠
+generator's MODEL — a feedback loop between two independent systems is what
+2-3×'s quality. A **taste call** is a prime cross-model-critic candidate too (see
+**Design work has a craft floor + a taste gate**).
+
 For **design work** the judge is a taste-judge, not a test — a green build never
 certifies how it looks (see **Design work has a craft floor + a taste gate**).
 
@@ -292,6 +310,33 @@ contradicts running the loop end-to-end — the user's prompt / plan-mode is the
 consent boundary. This gate fires at the hot-zone moment, not as a front-door
 interview.)
 
+**A request is not a rule — the catastrophic tier needs a hard hook, not just
+doctrine.** Everything above is a **soft** control: it routes a high-stakes action
+to the human only if the Captain/worker actually OBEYS the doctrine. But an
+instruction in `CLAUDE.md` or this file is a *request an agent can ignore* — a
+confused, drifted, or prompt-injected agent reads right past it. Only a
+**`PreToolUse` hook that programmatically BLOCKS the call** is an actual *rule*: it
+can't be argued out of. So the genuinely **catastrophic** slice of the hot-zone set
+— production deploys, secret read/exfiltration, destructive/irreversible data ops
+(DB drops, force-truncating migrations), `git push --force` to `main` — warrants
+**defense-in-depth: a hard `PreToolUse` block ON TOP OF the soft route-to-human.**
+The soft route catches the *cooperative* case (an aligned agent pausing for
+sign-off); the hook catches the *failure* case (a misaligned/confused agent that
+would barrel through). Categorize every action into three tiers, as the source
+does:
+- **autopilot** — always-OK, no gate (reads, typecheck, local edits, scoped tests).
+- **ask-first** — costs or destructive-but-**reversible** (spend, a deploy to a
+  preview env, deleting a local build dir): the soft route-to-human / permission-gate
+  above is enough.
+- **NEVER without a hard block** — prod deploys, secret read/exfil, irreversible
+  data loss, force-push to `main`: route to the human AND back it with a hard
+  `PreToolUse` hook so a confused agent physically cannot execute it.
+
+The starter reference hook lives at `hooks/hot-zone-guard/` in this repo
+(conservative, **opt-in** — Doug installs it deliberately; it is NOT auto-wired into
+global settings). It blocks only unambiguous catastrophic patterns and is a base to
+tune, not a finished policy.
+
 ## Design work has a craft floor + a taste gate
 This is the taste branch above (UI look, copy voice, design) made concrete — the
 case where "route it to a taste-judge" needs teeth. When a brief is **DESIGN work**
@@ -317,7 +362,10 @@ So for a design brief the Captain MUST:
 reviewer (judge ≠ generator) who runs the skill's `references/slop-linter.md`
 checklist + a visual check (`/visual-check` / screenshot) before `done`. A green
 test never means "looks good" — gate the design `done` on the taste-judge, exactly
-as the hot-zone/taste rule routes a taste call to a taste-judge or the human.
+as the hot-zone/taste rule routes a taste call to a taste-judge or the human. A
+taste call is also a strong **cross-model-critic** candidate — get a second,
+different-model eye (the `codex` skill) on a high-stakes aesthetic decision (see
+the cross-model critic under **judge ≠ generator**).
 
 Verified (2026-06-15): the `elite-design` skill was built by mining 16 videos from
 3 elite designers (Tim Gabe, Kole Jain, Sam Crawford) into a codified checklist +

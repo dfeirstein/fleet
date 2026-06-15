@@ -1,0 +1,16 @@
+{
+  "//": "OPT-IN reference snippet — copy this `hooks` block into a settings.json you control (a PROJECT .claude/settings.json, or ~/.claude/settings.json if you accept it firing on every session). Replace ABSOLUTE_PATH_TO_REPO with the real checkout path. Modifying global ~/.claude/settings.json is itself a config hot zone — install deliberately, never auto-wire.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx tsx ABSOLUTE_PATH_TO_REPO/hooks/hot-zone-guard/guard.ts"
+          }
+        ]
+      }
+    ]
+  }
+}
