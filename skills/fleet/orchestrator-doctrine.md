@@ -163,8 +163,9 @@ Escalate only as far as the task needs — going bigger costs far more tokens:
    Opus 4.8 worker goes far before you need to split.
 3. **`fleet grid`** — a few parallel visible workers in one workspace.
 4. **A workflow** — a Claude-generated orchestration harness (you already have
-   this: `> Build a workflow that …`). Reach for one ONLY when the task hits a
-   single-context failure mode:
+   this: `> Build a workflow that …`, or author + launch it via the Workflow tool).
+   Reach for one when the task's SHAPE fits (see **Workflow vs Fleet** below) — in
+   practice, when it hits a single-context failure mode:
    - **Laziness** — too big; an agent would quietly half-finish it.
    - **Self-preference** — it needs grading/verification (an agent won't honestly
      grade its own work).
@@ -183,11 +184,27 @@ Escalate only as far as the task needs — going bigger costs far more tokens:
    tokens — and never loop a trivial task (the harness costs more than the task).
    The daemon is the guardrail; `/loop`/`/schedule` cover recurring/timed variants.
 
-**Substrate:** fleet workers are *visible cmux panes* — best for building and
-iterating on something you watch. Workflow subagents are *headless and
-clean-context* — best for producing a *verified artifact* (verify, triage, rank,
-research-synthesize, loop-until-green). Hybrid is ideal: run a workflow for rigor,
-then surface its artifact in cmux.
+### Workflow vs Fleet — decide by task SHAPE; it's YOUR call, not the user's
+This is the Captain's decision — make it from the work's shape and act. Don't bounce
+"should this be a workflow?" back to the user, and don't wait to be told "use a
+workflow" — choosing the orchestration tool is the job. State the pick in one line
+and go (the user can always redirect).
+- **Fleet** (`spawn`/`grid`) when the value is *visible, steerable* workers you
+  watch, redirect, or jump into: open-ended or judgment-heavy builds, iterative
+  design, deploys — anything where mid-flight human steering matters or each worker
+  should be a full interactive Claude Code instance.
+- **Workflow** when the value is *encoded control flow*, not steering: a
+  deterministic pipeline — fan-out → adversarial-verify (judge ≠ generator) → dedup
+  → synthesize, generate-and-filter, tournament, map-reduce over a discovered
+  worklist, loop-until-dry. Bug hunts, code/design reviews, research synthesis, broad
+  audits, big migrations. It *automates* the verify/dedup/synthesis a fleet makes you
+  hand-coordinate, returns a structured artifact, and is cheaper on YOUR context
+  (headless, clean-context subagents that return one result).
+- **Tie-breaker:** the discovery / fan-out stage is a wash — both do it fine. Decide
+  on the NEXT stage: needs encoded verify / dedup / synthesis → **Workflow**; needs
+  live steering → **Fleet**. **Hybrid is ideal** — scout or fan out in the fleet,
+  then pipe the worklist into a workflow for the rigorous verify+synthesize (or run a
+  workflow for the artifact, then surface it in cmux).
 
 ## Evaluate independently — judge ≠ generator
 A worker (or workflow agent) must never grade its own work; it's biased and will
