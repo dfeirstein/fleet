@@ -8,6 +8,8 @@ import {
   doneLoopOutcome,
   redispatchPrompt,
   exhaustedMessage,
+  distillFailure,
+  shouldWake,
   type DoneCheckGate,
 } from "./done-loop.js";
 
@@ -102,4 +104,104 @@ test("exhausted message is loud, names the worker + check, and says don't just b
   assert.match(m, /3 re-dispatch/);
   assert.match(m, /don't just bump --max/);
   assert.match(m, /TS2304/);
+});
+
+// ── Feature A: distillFailure (pure "what actually failed" extractor) ──
+
+test("distillFailure: empty / whitespace-only input → (no output)", () => {
+  assert.equal(distillFailure(""), "(no output)");
+  assert.equal(distillFailure("   \n  \n\t"), "(no output)");
+});
+
+test("distillFailure: extracts failing-test summary + 'not ok' lines, drops passing noise", () => {
+  const out = ["ok 1 - adds", "ok 2 - subtracts", "not ok 3 - divides", "", "# tests 3", "1 failing"].join("\n");
+  const d = distillFailure(out);
+  assert.match(d, /not ok 3 - divides/);
+  assert.match(d, /1 failing/);
+  assert.doesNotMatch(d, /ok 1 - adds/); // passing lines excluded
+  assert.doesNotMatch(d, /# tests 3/); // non-signal summary excluded
+});
+
+test("distillFailure: extracts error/exception lines in order, de-duplicated", () => {
+  const out = [
+    "Running suite...",
+    "AssertionError: expected 1 to equal 2",
+    "    at Object.<anonymous> (test.js:10:5)",
+    "AssertionError: expected 1 to equal 2", // duplicate → dropped
+    "TypeError: x is not a function",
+  ].join("\n");
+  assert.deepEqual(distillFailure(out).split("\n"), [
+    "AssertionError: expected 1 to equal 2",
+    "TypeError: x is not a function",
+  ]);
+});
+
+test("distillFailure: no signal line → falls back to the last maxLines (the tail)", () => {
+  const out = ["line one", "line two", "line three", "the real message at the end"].join("\n");
+  assert.equal(distillFailure(out, { maxLines: 2 }), "line three\nthe real message at the end");
+});
+
+test("distillFailure: caps to maxLines and appends a truncation marker", () => {
+  const out = Array.from({ length: 20 }, (_, i) => `Error ${i}: boom`).join("\n");
+  const lines = distillFailure(out, { maxLines: 5 }).split("\n");
+  assert.equal(lines.length, 6); // 5 kept + 1 marker
+  assert.match(lines[0]!, /^Error 0: boom$/);
+  assert.match(lines[5]!, /… \(truncated; 15 more line\(s\)\)/);
+});
+
+test("distillFailure: caps to maxChars by dropping whole lines (still marks the drop)", () => {
+  const out = Array.from({ length: 10 }, (_, i) => `Error: ${"x".repeat(50)} ${i}`).join("\n");
+  const d = distillFailure(out, { maxChars: 120 });
+  assert.match(d, /truncated; \d+ more line\(s\)/);
+  const body = d.split("\n").filter((l) => !l.startsWith("…")).join("\n");
+  assert.ok(body.length <= 120, `body should be under maxChars, got ${body.length}`);
+});
+
+test("distillFailure: a single over-long line is clipped AND marked truncated", () => {
+  const out = "AssertionError: " + "y".repeat(500);
+  const d = distillFailure(out, { maxChars: 80 });
+  assert.ok(d.length <= 80, `clipped to maxChars, got ${d.length}`);
+  assert.match(d, /truncated/);
+  assert.match(d, /^AssertionError:/);
+});
+
+// ── Feature B: shouldWake (pre-spawn gate, FAIL-OPEN) ──
+
+test("shouldWake: explicit {wakeAgent:false} on a clean run → skip", () => {
+  assert.equal(shouldWake('{"wakeAgent": false}', 0), false);
+});
+
+test("shouldWake: explicit {wakeAgent:true} → wake", () => {
+  assert.equal(shouldWake('{"wakeAgent": true}', 0), true);
+});
+
+test("shouldWake: no JSON line → wake (fail-open)", () => {
+  assert.equal(shouldWake("nothing structured here", 0), true);
+  assert.equal(shouldWake("", 0), true);
+});
+
+test("shouldWake: malformed JSON → wake (fail-open)", () => {
+  assert.equal(shouldWake('{"wakeAgent": fal', 0), true);
+});
+
+test("shouldWake: non-boolean wakeAgent → wake (fail-open)", () => {
+  assert.equal(shouldWake('{"wakeAgent": "no"}', 0), true);
+});
+
+test("shouldWake: non-zero exit → wake even if it printed false", () => {
+  assert.equal(shouldWake('{"wakeAgent": false}', 1), true);
+});
+
+test("shouldWake: the FINAL non-empty line is the verdict (consecutive clean lines → last wins)", () => {
+  assert.equal(shouldWake(['{"wakeAgent": true}', '{"wakeAgent": false}'].join("\n"), 0), false);
+  assert.equal(shouldWake(['{"wakeAgent": false}', '{"wakeAgent": true}'].join("\n"), 0), true);
+  // Trailing blank lines are ignored — the last NON-EMPTY line decides.
+  assert.equal(shouldWake('{"wakeAgent": false}\n\n  \n', 0), false);
+});
+
+test("shouldWake: a clean false followed by a non-verdict/malformed trailing line WAKES (no upward scan)", () => {
+  // A stale `false` hiding behind trailing garbage must NOT suppress work.
+  assert.equal(shouldWake(['{"wakeAgent": false}', "plain text"].join("\n"), 0), true);
+  assert.equal(shouldWake(['{"wakeAgent": false}', '{"other": 1}'].join("\n"), 0), true);
+  assert.equal(shouldWake(['{"wakeAgent": false}', "garbage {not json"].join("\n"), 0), true);
 });

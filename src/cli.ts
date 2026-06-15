@@ -189,7 +189,15 @@ Commands:
                                              the outcome log (human-gated; no auto-edit)
   objective <goal...> --done <c>|--verify <c> Loop a worker until a stop condition
         [--cwd P] [--max N] [--model M]       passes (--verify runs it through the
-                                             eval gate in the worker's worktree)
+        [--wake-check <cmd>] [--interval <s>]  eval gate in the worker's worktree).
+        [--max-ticks <N>] [--no-agent]        --wake-check gates each tick: skip the
+                                             spawn ONLY when its last line is
+                                             {"wakeAgent":false} — anything else (no
+                                             output, parse error, non-zero exit) wakes
+                                             (fail-open). --interval sleeps <s> between
+                                             ticks (recurring monitor). --no-agent runs
+                                             only --done each tick (0 tokens), alerting
+                                             the Captain on FAIL. --max-ticks bounds it.
   resume [--apply]                            Reconcile registry vs live cmux
                                              (prune untraceable dead, refresh
                                              refs; after a cmux restart, prints
@@ -683,14 +691,47 @@ async function main(): Promise<void> {
       if (!goal) return fail("objective requires a <goal>");
       // --verify routes the stop-condition through the eval gate (`fleet verify`,
       // run in the worker's cwd/worktree); --done runs it inline in --cwd.
-      const viaVerify = str(flags.verify) != null;
-      const doneCheck = str(flags.verify) ?? str(flags.done);
+      const noAgent = flags["no-agent"] === true;
+      // --no-agent never spawns a worker; the --done check IS the monitor, so it
+      // must be present (a --verify-only monitor has no worker to verify). Check
+      // this BEFORE the generic --done/--verify check so the message is precise.
+      if (noAgent && !str(flags.done)) {
+        return fail('objective --no-agent requires --done "<check>" (no worker is spawned)');
+      }
+      // The wake-check gates a WORKER spawn; --no-agent never spawns one, so the
+      // combo is incompatible (and silently suppresses the monitor if allowed).
+      if (noAgent && str(flags["wake-check"])) {
+        return fail("objective --no-agent and --wake-check are incompatible (--no-agent has no worker to gate)");
+      }
+      // --no-agent has no worker to verify, so it always monitors the inline
+      // --done check (any --verify is ignored); otherwise --verify routes the
+      // stop-condition through the eval gate against the worker.
+      const viaVerify = !noAgent && str(flags.verify) != null;
+      const doneCheck = noAgent ? str(flags.done) : str(flags.verify) ?? str(flags.done);
       if (!doneCheck) return fail('objective requires --done "<check>" or --verify "<check>"');
+      const intervalStr = str(flags.interval);
+      const intervalSec = intervalStr != null ? Number(intervalStr) : undefined;
+      // Reject non-positive too: objective() treats 0/negative as "unset" and
+      // silently falls back to defaults — an explicit bad value must error loud.
+      if (intervalSec != null && (!Number.isFinite(intervalSec) || intervalSec <= 0)) {
+        return fail("objective --interval must be a positive number (seconds)");
+      }
+      const maxTicksStr = str(flags["max-ticks"]);
+      const maxTicks = maxTicksStr != null ? Number(maxTicksStr) : undefined;
+      // Reject non-positive too: --max-ticks 0 would otherwise read as "unset"
+      // and silently run the default (e.g. 50) — a silent unbounded fallback.
+      if (maxTicks != null && (!Number.isFinite(maxTicks) || maxTicks <= 0)) {
+        return fail("objective --max-ticks must be a positive number");
+      }
       const res = objective(goal, doneCheck, {
         cwd: str(flags.cwd) ?? process.cwd(),
         maxIterations: str(flags.max) ? Number(str(flags.max)) : 3,
         model: str(flags.model),
         viaVerify,
+        wakeCheck: str(flags["wake-check"]),
+        intervalSec,
+        noAgent,
+        maxTicks,
       });
       console.log(`objective ${res.done ? "DONE" : "NOT met"} after ${res.iterations} iteration(s)`);
       if (!res.done) process.exitCode = 1;
