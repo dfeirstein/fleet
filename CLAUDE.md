@@ -6,9 +6,9 @@ sessions, each in its own cmux pane, all under the user's Max plan.
 
 ## What This Is
 - Language: TypeScript (pure ESM, `"type": "module"`), run via `tsx` — **no build step**
-- Runtime: Node 20+ (Node 22 LTS "Jod" local). **Zero runtime deps** (only devDeps: `tsx` pinned `^4.19.2`, `typescript` pinned `^5.7.2`, `@types/node` `^25.9.2`)
+- Runtime: Node 20+ (Node 22 LTS "Jod" local). **Zero runtime deps** (only devDeps: `tsx` pinned `^4.22.4`, `typescript` pinned `^6.0.3`, `@types/node` `^25.9.3`)
 - Entry: `bin/fleet` (bash auto-update layer) → `tsx src/cli.ts`; one command per file in `src/commands/`
-- Stack resolved 2026-06-08 (latest npm: tsx 4.22.4, typescript 6.0.3 — pins lag intentionally). Refresh with `fleet currency`; full table in `.claude-docs/versions.md`.
+- Stack resolved 2026-06-15 (pins at latest npm: tsx 4.22.4, typescript 6.0.3, @types/node 25.9.3). Refresh with `fleet currency`; full table in `.claude-docs/versions.md`.
 - Structure:
   - `src/cli.ts` — arg parse → command dispatch (the only switch)
   - `src/cmux.ts` — **the only place that shells out to cmux** (typed wrapper)

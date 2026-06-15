@@ -1,22 +1,30 @@
 {
-  "generatedAt": "2026-06-08",
+  "generatedAt": "2026-06-15",
   "ttlDays": 7,
   "entries": [
     {
       "name": "tsx",
       "kind": "npm",
-      "pinned": "^4.19.2",
+      "pinned": "^4.22.4",
       "latest": "4.22.4",
       "source": "https://www.npmjs.com/package/tsx",
-      "fetchedAt": "2026-06-08"
+      "fetchedAt": "2026-06-15"
+    },
+    {
+      "name": "@types/node",
+      "kind": "npm",
+      "pinned": "^25.9.3",
+      "latest": "25.9.3",
+      "source": "https://www.npmjs.com/package/@types/node",
+      "fetchedAt": "2026-06-15"
     },
     {
       "name": "typescript",
       "kind": "npm",
-      "pinned": "^5.7.2",
+      "pinned": "^6.0.3",
       "latest": "6.0.3",
       "source": "https://www.npmjs.com/package/typescript",
-      "fetchedAt": "2026-06-08"
+      "fetchedAt": "2026-06-15"
     },
     {
       "name": "claude-opus-4-8",
@@ -24,7 +32,7 @@
       "latest": "claude-opus-4-8",
       "note": "Anthropic — Opus 4.8 (most capable)",
       "source": "https://docs.anthropic.com/en/docs/about-claude/models",
-      "fetchedAt": "2026-06-08"
+      "fetchedAt": "2026-06-15"
     },
     {
       "name": "claude-sonnet-4-6",
@@ -32,7 +40,7 @@
       "latest": "claude-sonnet-4-6",
       "note": "Anthropic — Sonnet 4.6",
       "source": "https://docs.anthropic.com/en/docs/about-claude/models",
-      "fetchedAt": "2026-06-08"
+      "fetchedAt": "2026-06-15"
     },
     {
       "name": "claude-haiku-4-5-20251001",
@@ -40,7 +48,7 @@
       "latest": "claude-haiku-4-5-20251001",
       "note": "Anthropic — Haiku 4.5",
       "source": "https://docs.anthropic.com/en/docs/about-claude/models",
-      "fetchedAt": "2026-06-08"
+      "fetchedAt": "2026-06-15"
     }
   ]
 }
