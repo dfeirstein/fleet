@@ -53,6 +53,13 @@ import { readHookSessions, type DurableSessionMap } from "../cmux-sessions.js";
 import { decideSelfHeal } from "./selfheal.js";
 import { routeMessage } from "./channel.js";
 import { newMemory, evaluate, evaluateResources, waveCompleteMessage, type DaemonMemory } from "./policy.js";
+import {
+  formatBeatLine,
+  emptyCounts,
+  countWorkers,
+  type CaptainBeatSummary,
+  type BeatLineModel,
+} from "./beat-format.js";
 
 /** Every Captain whose surface (pane) is still live — the set the daemon watches.
  *  Surface-level, not workspace-level: quadrant siblings share one workspace, so a
@@ -126,6 +133,9 @@ export function reconcileLiveCaptains(
   unresolved: Map<string, number>,
   settings: SharedSettings,
   deps: ReconcileDeps = liveReconcileDeps(settings),
+  /** Observation-only: per-session self-heal re-stamps this beat, for the beat
+   *  line's actions rollup. Never affects supervision. */
+  healedOut?: Map<string, number>,
 ): OrchestratorRecord[] {
   const records = deps.loadRecords();
   const map = deps.readMap();
@@ -152,6 +162,7 @@ export function reconcileLiveCaptains(
         break;
       case "rematch": {
         unresolved.delete(o.session);
+        healedOut?.set(o.session, (healedOut.get(o.session) ?? 0) + 1);
         const healed: OrchestratorRecord = { ...o, surfaceId: decision.surfaceId };
         try {
           deps.writeRecord(healed);
@@ -255,9 +266,14 @@ function isBypassDialog(screen: string): boolean {
  *
  * Runs INLINE on the beat: keep done-checks fast (the loop-engineering point is
  * a cheap external check), since a slow one blocks the shared daemon's beat.
+ *
+ * Returns what it did this beat (for the beat line's actions rollup); behavior
+ * is unchanged — the kind is purely a report of the action already taken.
  */
-export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now: number): void {
-  if (!a.doneCheck) return;
+export type DoneLoopAction = "none" | "pass" | "redispatch" | "exhausted";
+
+export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now: number): DoneLoopAction {
+  if (!a.doneCheck) return "none";
   // Per-turn bookkeeping keyed by the dispatch we'd check. A new dispatch
   // (re-dispatch or `fleet send`) resets sawActive/checked → a fresh check.
   let st = mem.doneLoop[a.agentId];
@@ -278,7 +294,7 @@ export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now:
       alreadyChecked: st.checked,
     })
   ) {
-    return;
+    return "none";
   }
   st.checked = true; // once per turn, even if the check itself errors
 
@@ -292,12 +308,14 @@ export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now:
   switch (doneLoopOutcome(pass, loopCount, maxLoops)) {
     case "pass":
       console.log(`[daemon] --done check passed for ${a.label} — proof attached`);
-      return;
+      return "pass";
     case "redispatch": {
       const attempt = loopCount + 1;
+      let redispatched = false;
       try {
         send(a.agentId, redispatchPrompt(a.doneCheck, output, attempt));
         patch(a.agentId, { doneLoopCount: attempt });
+        redispatched = true;
         console.log(`[daemon] --done check failed for ${a.label} — re-dispatched (${attempt}/${maxLoops})`);
       } catch (e) {
         // A send() throw is a transient steering hiccup (cmux/PTY), not a failed
@@ -312,7 +330,7 @@ export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now:
         st.checked = false;
         console.error(`[daemon] --done re-dispatch failed for ${a.label} (retry next beat): ${(e as Error).message}`);
       }
-      return;
+      return redispatched ? "redispatch" : "none";
     }
     case "exhausted": {
       // Loud, never silent, never auto-retried again (doneLoopExhausted gates it off).
@@ -328,12 +346,12 @@ export function runDoneLoop(a: Agent, mem: DaemonMemory, cfg: DaemonConfig, now:
         check: a.doneCheck,
         cwd: a.worktree?.path ?? a.cwd,
       });
-      return;
+      return "exhausted";
     }
   }
 }
 
-function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
+function beat(cfg: DaemonConfig, mem: DaemonMemory): CaptainBeatSummary {
   const rows = snapshot(); // reconcile + classify (marks dead)
   // Draw the dashboard + heartbeat on the ORCHESTRATOR's workspace (the daemon's
   // own CMUX_WORKSPACE_ID is the daemon pane, not where the user is watching).
@@ -347,6 +365,18 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
   const agents = listAgents();
   // One resource sweep for the whole beat (undefined on older cmux → guardrail off).
   const top = sampledTop(now);
+
+  // Beat-line rollup (observability only): worker tallies + what we DID + the
+  // worst telemetry seen. None of these counters steer supervision.
+  const counts = countWorkers(agents.map((a) => a.status));
+  let redispatch = 0;
+  let donePass = 0;
+  let doneExhausted = 0;
+  let alerts = 0;
+  let waveComplete = false;
+  let cpuMaxPct: number | undefined;
+  let spinning = false;
+  let unhealthy = false;
 
   // RPC steering: pending Feed prompts (oldest first), so a blocked nudge can
   // carry the prompt summary + the exact `fleet reply` command. SURFACING only
@@ -396,7 +426,17 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     // `fleet spawn --done` loop: on stable-idle, run the stop-condition and
     // pass→attach-proof / fail→re-dispatch / exhausted→escalate. Owns the idle
     // of a --done worker, so the doneNoProof nudge below is suppressed for it.
-    runDoneLoop(a, mem, cfg, now);
+    switch (runDoneLoop(a, mem, cfg, now)) {
+      case "pass":
+        donePass++;
+        break;
+      case "redispatch":
+        redispatch++;
+        break;
+      case "exhausted":
+        doneExhausted++;
+        break;
+    }
 
     // Feature 3 diagnostic: an idle worker that attached no proof is a
     // done-without-proof candidate. Cheap (registry only) — the runnable gate
@@ -424,25 +464,27 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     if (msg) {
       const delivery = routeMessage(cfg, msg.text, msg.urgent);
       console.log(`[daemon] ${delivery}${msg.urgent ? " (urgent)" : ""}: ${msg.text}`);
+      alerts++;
     }
 
     // Resource guardrails: sustained CPU / RSS breach / surface-health failure
     // → Captain nudge, NEVER an auto-kill. Capability-gated end to end: on a
     // cmux without system.top / surface.health both inputs are undefined and
     // evaluateResources never fires.
-    const rmsg = evaluateResources(
-      a,
-      a.surfaceId ? top?.get(a.surfaceId) : undefined,
-      sampledHealthFailure(a, now),
-      mem,
-      now,
-      cooldownMs,
-      cfg,
-    );
+    const sample = a.surfaceId ? top?.get(a.surfaceId) : undefined;
+    const healthFailure = sampledHealthFailure(a, now);
+    const rmsg = evaluateResources(a, sample, healthFailure, mem, now, cooldownMs, cfg);
     if (rmsg) {
       const delivery = routeMessage(cfg, rmsg.text, rmsg.urgent);
       console.log(`[daemon] ${delivery} (guardrail): ${rmsg.text}`);
+      alerts++;
     }
+
+    // Telemetry for the beat line — read AFTER evaluateResources so the spinning
+    // dwell reflects this beat's increment (matches the cpuhog nudge condition).
+    if (sample && (cpuMaxPct === undefined || sample.cpuPercent > cpuMaxPct)) cpuMaxPct = sample.cpuPercent;
+    if ((mem.cpuHighBeats[a.agentId] ?? 0) >= cfg.cpuHogBeats) spinning = true;
+    if (healthFailure) unhealthy = true;
   }
 
   // Forget tracking for agents that are gone.
@@ -481,9 +523,23 @@ function beat(cfg: DaemonConfig, mem: DaemonMemory): void {
     const delivery = routeMessage(cfg, text, true); // urgent → inject when idle, else inbox
     console.log(`[daemon] ${delivery} (wave-complete): ${text}`);
     mem.waveActive = false;
+    waveComplete = true;
   }
 
-  console.log(`[daemon] beat · ${agents.length} agents · ${new Date().toISOString().slice(11, 19)}`);
+  return {
+    session: cfg.session ?? "?", // always set on the shared-daemon path (configForCaptain)
+    counts,
+    actions: {
+      redispatch: redispatch || undefined,
+      donePass: donePass || undefined,
+      doneExhausted: doneExhausted || undefined,
+      waveComplete: waveComplete || undefined,
+      alerts: alerts || undefined,
+    },
+    cpuMaxPct,
+    spinning: spinning || undefined,
+    unhealthy: unhealthy || undefined,
+  };
 }
 
 export function runLoop(): void {
@@ -521,8 +577,10 @@ export function runLoop(): void {
     lastBeatMs = now;
     ticks++;
 
-    const captains = reconcileLiveCaptains(selfHealUnresolved, settings);
+    const healed = new Map<string, number>(); // session → self-heal re-stamps this beat
+    const captains = reconcileLiveCaptains(selfHealUnresolved, settings, liveReconcileDeps(settings), healed);
     const liveSessions = new Set(captains.map((c) => c.session));
+    const summaries: CaptainBeatSummary[] = [];
     for (const o of captains) {
       const cfg = configForCaptain(o, settings);
       let mem = mems.get(o.session);
@@ -542,9 +600,14 @@ export function runLoop(): void {
           }
         }
         try {
-          beat(cfg, mem!);
+          const summary = beat(cfg, mem!);
+          const sh = healed.get(o.session);
+          if (sh) summary.actions.selfHeal = sh; // attribute the reconcile's re-stamp
+          summaries.push(summary);
         } catch (e) {
           console.error(`[daemon] beat error (${o.session}): ${(e as Error).message}`);
+          // Still surface the Captain in the beat line, marked errored — never drop it.
+          summaries.push({ session: o.session, counts: emptyCounts(), actions: {}, beatError: true });
         }
       });
     }
@@ -561,9 +624,16 @@ export function runLoop(): void {
       daemonWorkspace,
       watching: [...liveSessions],
     });
-    console.log(
-      `[daemon] beat · ${captains.length} captains · ${new Date().toISOString().slice(11, 19)}`,
-    );
+
+    // ONE consolidated, captain-attributed pulse for the whole cycle (replaces
+    // the old per-captain "N agents" + per-cycle "N captains" lines).
+    const model: BeatLineModel = {
+      beat: ticks,
+      uptimeMs: now - Date.parse(startedAt),
+      captains: summaries,
+      at: new Date().toISOString().slice(11, 19),
+    };
+    console.log(formatBeatLine(model, { color: process.stdout.isTTY === true }));
   }
 
   console.log(`[daemon] boot · shared · watching all live Captains · event-driven + ${settings.heartbeatSec}s tick`);
