@@ -42,6 +42,9 @@ export interface CaptainBeatSummary {
   session: string;
   counts: WorkerStatusCounts;
   actions: BeatActions;
+  /** When this Captain was declared (ISO). Orders the line oldest-first so the
+   *  original Captain leads; missing sorts last (carried from OrchestratorRecord). */
+  declaredAt?: string;
   /** Highest worker CPU% sampled this beat (may exceed 100 across cores). */
   cpuMaxPct?: number;
   /** A worker has been above the CPU threshold long enough to look stuck. */
@@ -126,6 +129,18 @@ const dim = (s: string, color: boolean) => wrap(s, "2", color);
 const yellow = (s: string, color: boolean) => wrap(s, "33", color);
 const red = (s: string, color: boolean) => wrap(s, "31", color);
 
+/** Order captains oldest-first by declaredAt (the original Captain leads); a
+ *  missing declaredAt sorts last, with a stable tiebreak on session name so the
+ *  rendered order is deterministic. ISO timestamps compare lexicographically. */
+function compareCaptains(a: CaptainBeatSummary, b: CaptainBeatSummary): number {
+  if (a.declaredAt !== b.declaredAt) {
+    if (a.declaredAt === undefined) return 1;
+    if (b.declaredAt === undefined) return -1;
+    return a.declaredAt < b.declaredAt ? -1 : 1;
+  }
+  return a.session < b.session ? -1 : a.session > b.session ? 1 : 0;
+}
+
 function captainSegment(s: CaptainBeatSummary, color: boolean): string {
   if (s.beatError) return `${s.session} ${red("✗beat-error", color)}`;
   const parts: string[] = [];
@@ -200,19 +215,25 @@ export function formatUptime(ms: number): string {
  */
 export function formatBeatLine(model: BeatLineModel, opts: { color?: boolean } = {}): string {
   const color = opts.color === true;
-  const head = `[daemon] beat ${bold(String(model.beat), color)} · ${dim(formatUptime(model.uptimeMs), color)}`;
+  const head = `[daemon] beat ${bold(String(model.beat), color)}`;
+  const uptime = dim(formatUptime(model.uptimeMs), color);
   const time = dim(model.at, color);
 
-  if (model.captains.length === 0) return `${head} · no captains · ${time}`;
+  if (model.captains.length === 0) return `${head} · no captains · ${uptime} · ${time}`;
 
-  const shown = model.captains.slice(0, MAX_SEGMENTS).map((c) => captainSegment(c, color));
+  // Captains lead the line (right after the beat number) so a narrow pane clips
+  // the trailing uptime/telemetry/timestamp first, not a Captain. Render them
+  // oldest-first (compareCaptains).
+  const ordered = [...model.captains].sort(compareCaptains);
+
+  const shown = ordered.slice(0, MAX_SEGMENTS).map((c) => captainSegment(c, color));
   // Never silently drop a Captain: the tail count covers every overflow, and
   // their actions/telemetry still roll up below (only the breakdown is elided).
-  if (model.captains.length > MAX_SEGMENTS) shown.push(`+${model.captains.length - MAX_SEGMENTS} more`);
+  if (ordered.length > MAX_SEGMENTS) shown.push(`+${ordered.length - MAX_SEGMENTS} more`);
 
-  const tail = [actionsSegment(model.captains), telemetrySegment(model.captains, color)].filter(
+  const tail = [actionsSegment(ordered), telemetrySegment(ordered, color)].filter(
     (x): x is string => x !== undefined,
   );
 
-  return `${head} · ${[...shown, ...tail].join(" · ")} · ${time}`;
+  return `${head} · ${[...shown, uptime, ...tail].join(" · ")} · ${time}`;
 }

@@ -601,13 +601,14 @@ export function runLoop(): void {
         }
         try {
           const summary = beat(cfg, mem!);
+          summary.declaredAt = o.declaredAt; // carry from the record so the line orders oldest-first
           const sh = healed.get(o.session);
           if (sh) summary.actions.selfHeal = sh; // attribute the reconcile's re-stamp
           summaries.push(summary);
         } catch (e) {
           console.error(`[daemon] beat error (${o.session}): ${(e as Error).message}`);
           // Still surface the Captain in the beat line, marked errored — never drop it.
-          summaries.push({ session: o.session, counts: emptyCounts(), actions: {}, beatError: true });
+          summaries.push({ session: o.session, counts: emptyCounts(), actions: {}, declaredAt: o.declaredAt, beatError: true });
         }
       });
     }

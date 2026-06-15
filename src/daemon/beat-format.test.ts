@@ -50,11 +50,60 @@ test("two captains with different mixes: both segments present, attributed, only
       ],
     }),
   );
-  assert.match(line, /\[daemon\] beat 12 · 47m/);
+  // Captains now lead the line (right after the beat number), uptime trails them.
+  assert.match(line, /\[daemon\] beat 12 · yoshi 2r 1i · yoshi-3 1L 1e · 47m/);
   assert.match(line, /yoshi 2r 1i/); // attributed, only non-zero statuses
   assert.match(line, /yoshi-3 1L 1e/);
   assert.ok(!/0[riLbaed]/.test(line), "no zero-count buckets leak into a segment");
   assert.match(line, /· 14:23:07$/);
+});
+
+test("captains render oldest-first by declaredAt (the OG Captain leads), regardless of input order", () => {
+  // yoshi-3 is newer but listed first in the input (record-load order) — the
+  // older yoshi must still lead the rendered line.
+  const line = formatBeatLine(
+    model({
+      captains: [
+        cap("yoshi-3", { counts: { ...emptyCounts(), idle: 1 }, declaredAt: "2026-06-15T22:00:00Z" }),
+        cap("yoshi", { counts: { ...emptyCounts(), idle: 1 }, declaredAt: "2026-06-11T00:00:00Z" }),
+      ],
+    }),
+  );
+  assert.ok(line.indexOf("yoshi 1i") < line.indexOf("yoshi-3 1i"), "older yoshi appears before newer yoshi-3");
+});
+
+test("missing declaredAt sorts last, with a deterministic tiebreak on session name", () => {
+  const line = formatBeatLine(
+    model({
+      captains: [
+        cap("zelda", {}), // no declaredAt → sorts last
+        cap("yoshi", {}), // no declaredAt → sorts last; tiebreak by name before zelda
+        cap("link", { declaredAt: "2026-06-11T00:00:00Z" }), // has declaredAt → leads
+      ],
+    }),
+  );
+  const iLink = line.indexOf("link idle");
+  const iYoshi = line.indexOf("yoshi idle");
+  const iZelda = line.indexOf("zelda idle");
+  assert.ok(iLink < iYoshi && iLink < iZelda, "the dated captain leads the undated ones");
+  assert.ok(iYoshi < iZelda, "undated captains tiebreak by session name (yoshi before zelda)");
+});
+
+test("captain segments sit BEFORE the uptime token (a narrow pane clips the time, not a captain)", () => {
+  const line = formatBeatLine(
+    model({
+      beat: 20,
+      uptimeMs: 3 * 60_000,
+      captains: [
+        cap("yoshi", { declaredAt: "2026-06-11T00:00:00Z" }),
+        cap("yoshi-3", { declaredAt: "2026-06-15T22:00:00Z" }),
+      ],
+    }),
+  );
+  // [daemon] beat 20 · yoshi idle · yoshi-3 idle · 3m · 14:23:07
+  assert.equal(line, "[daemon] beat 20 · yoshi idle · yoshi-3 idle · 3m · 14:23:07");
+  assert.ok(line.indexOf("yoshi idle") < line.indexOf(" 3m "), "captains precede the uptime");
+  assert.ok(line.indexOf(" 3m ") < line.indexOf("14:23:07"), "uptime precedes the timestamp");
 });
 
 test("captain with zero workers reads 'idle' (the word), never a bare 0", () => {
@@ -121,7 +170,7 @@ test("telemetry: spinning/high-cpu → 'cpu …⚠'; unhealthy → 'surface⚠';
 
 test("empty fleet → 'no captains'", () => {
   const line = formatBeatLine(model({ beat: 3, uptimeMs: 8_000 }));
-  assert.equal(line, "[daemon] beat 3 · 8s · no captains · 14:23:07");
+  assert.equal(line, "[daemon] beat 3 · no captains · 8s · 14:23:07");
 });
 
 test("long fleet (>6 captains) → '+N more', and no captain is silently dropped", () => {
