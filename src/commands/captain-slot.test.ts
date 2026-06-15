@@ -3,13 +3,30 @@
 // proven without spawning a workspace. Run with `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chooseCaptainSlot, familyOf, indexOf, type CaptainSlotRecord } from "./captain-slot.js";
+import {
+  chooseCaptainSlot,
+  reconcileStaleRecords,
+  familyOf,
+  indexOf,
+  type CaptainSlotRecord,
+} from "./captain-slot.js";
 
 type IsLive = (r: { workspaceId: string; surfaceId: string }) => boolean;
 const liveAll: IsLive = () => true;
 
 function rec(session: string, workspaceId: string, surfaceId: string): CaptainSlotRecord {
   return { session, workspaceId, surfaceId };
+}
+
+/** A `liveCells` lookup from a workspace → live-surface-ids map. */
+function cellsFrom(map: Record<string, string[]>): (ws: string) => string[] {
+  return (ws) => map[ws] ?? [];
+}
+
+/** isLive that treats a record as live iff its surface is among its workspace's
+ *  live cells — the real cmux relationship (`surfaceExists` over grid cells). */
+function liveByCells(map: Record<string, string[]>): IsLive {
+  return (r) => (map[r.workspaceId] ?? []).includes(r.surfaceId);
 }
 
 test("familyOf strips the -N sibling suffix; indexOf maps a session to its quadrant slot", () => {
@@ -108,4 +125,77 @@ test("no record owns ws: family falls back to the env session's family", () => {
   });
   assert.equal(family, "yoshi");
   assert.equal(session, "yoshi"); // no live yoshi sibling → base slot is free
+});
+
+// --- reconcileStaleRecords: heal a stale-but-live record before the slot pick ---
+// PR #59 anchored family + added a uniqueness guard, but BOTH decide liveness via
+// isLive(record.surfaceId). A persistently STALE surfaceId (in-pane relaunch /
+// durable-map lag) makes a LIVE Captain read as not-live → the slot collapses to
+// the bare family name and --split clobbers its record (a clone). reconcile re-points
+// stale records to their UNAMBIGUOUS live cell first, mirroring decideSelfHeal.
+
+test("THE stale-record clone bug: a live Captain with a stale surfaceId reconciles to its live cell → yoshi-2, NOT a clone", () => {
+  // yoshi is LIVE in workspace W, but its record points at a DEAD surface (its pane
+  // was relaunched/re-surfaced); W's only live cell is the relaunched pane LIVE_A.
+  const liveCellsMap = { W: ["LIVE_A"] };
+  const records = [rec("yoshi", "W", "DEAD")];
+  const isLive = liveByCells(liveCellsMap);
+
+  // The bug, made explicit: WITHOUT reconcile, chooseCaptainSlot sees the stale
+  // yoshi as not-live → the live-count is empty and the uniqueness guard re-probes
+  // the same dead surface → it accepts the bare family name "yoshi" (the clone).
+  const naive = chooseCaptainSlot({ records, ws: "W", fallbackSession: "yoshi", isLive, cap: 4 });
+  assert.equal(naive.session, "yoshi", "reproduces the clone: stale record reads as not-live");
+
+  // The fix: reconcile re-stamps yoshi onto its live cell, then the slot decision
+  // counts it as live and the guard refuses its name → next free slot.
+  const reconciled = reconcileStaleRecords({ records, liveCells: cellsFrom(liveCellsMap), isLive });
+  assert.equal(reconciled[0]!.surfaceId, "LIVE_A", "stale surfaceId healed to the unambiguous live cell");
+  const { family, session } = chooseCaptainSlot({
+    records: reconciled,
+    ws: "W",
+    fallbackSession: "yoshi",
+    isLive,
+    cap: 4,
+  });
+  assert.equal(family, "yoshi");
+  assert.equal(session, "yoshi-2", "live yoshi is counted → no clone");
+});
+
+test("ambiguous: two unclaimed live cells leave the stale record unchanged (fail closed)", () => {
+  // W has TWO live cells and no other record claims either → which one is yoshi's?
+  // Don't guess. Leave it stale; the split then treats it as a free slot and the
+  // daemon self-heal escalates the genuinely-ambiguous case.
+  const liveCellsMap = { W: ["LIVE_A", "LIVE_B"] };
+  const records = [rec("yoshi", "W", "DEAD")];
+  const isLive = liveByCells(liveCellsMap);
+  const reconciled = reconcileStaleRecords({ records, liveCells: cellsFrom(liveCellsMap), isLive });
+  assert.equal(reconciled[0]!.surfaceId, "DEAD", "ambiguous → not guessed; record untouched");
+  const { session } = chooseCaptainSlot({ records: reconciled, ws: "W", fallbackSession: "yoshi", isLive, cap: 4 });
+  assert.equal(session, "yoshi", "still not-live → split takes the bare family slot");
+});
+
+test("already-live record: reconcile is a no-op (same reference back)", () => {
+  const liveCellsMap = { W: ["LIVE_A"] };
+  const records = [rec("yoshi", "W", "LIVE_A")];
+  const reconciled = reconcileStaleRecords({
+    records,
+    liveCells: cellsFrom(liveCellsMap),
+    isLive: liveByCells(liveCellsMap),
+  });
+  assert.equal(reconciled[0], records[0], "live record returned unchanged");
+});
+
+test("no cross-claim: a live cell already owned by another live-surfaced record is not a candidate", () => {
+  // W has live cells [LIVE_A, LIVE_B]; LIVE_A belongs to the live yoshi. The stale
+  // yoshi-2 may only heal onto the UNCLAIMED LIVE_B — never steal a sibling's pane.
+  const liveCellsMap = { W: ["LIVE_A", "LIVE_B"] };
+  const records = [rec("yoshi", "W", "LIVE_A"), rec("yoshi-2", "W", "DEAD")];
+  const reconciled = reconcileStaleRecords({
+    records,
+    liveCells: cellsFrom(liveCellsMap),
+    isLive: liveByCells(liveCellsMap),
+  });
+  assert.equal(reconciled[0]!.surfaceId, "LIVE_A", "the live sibling is untouched");
+  assert.equal(reconciled[1]!.surfaceId, "LIVE_B", "stale sibling heals onto the unclaimed cell only");
 });

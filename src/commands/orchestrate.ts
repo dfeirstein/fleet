@@ -29,6 +29,7 @@ import {
   loadAllOrchestrators,
   orchestratorPath,
   orchestratorSession,
+  writeOrchestrator,
   type OrchestratorRecord,
 } from "../orchestrator-record.js";
 import { readHookSessions, findSession } from "../cmux-sessions.js";
@@ -37,7 +38,7 @@ import {
   inPaneResumeRecipe,
   type CaptainListing,
 } from "./captain-args.js";
-import { chooseCaptainSlot } from "./captain-slot.js";
+import { chooseCaptainSlot, reconcileStaleRecords } from "./captain-slot.js";
 import { ensureSharedDaemon } from "./daemon.js";
 
 /** Max Captains per family — a 2×2 quadrant. */
@@ -230,6 +231,33 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
     );
   }
 
+  const isLive = (r: { workspaceId: string; surfaceId: string }) =>
+    surfaceExists({ workspace: r.workspaceId, surface: r.surfaceId });
+
+  // Reconcile STALE-but-live records BEFORE the slot decision. PR #59 anchored the
+  // family + added a uniqueness guard, but both decide liveness via isLive(surfaceId);
+  // a Captain relaunched in-pane (or hit by durable-map lag) carries a stale surfaceId,
+  // so a LIVE Captain reads as not-live and the slot collapses to the bare family name
+  // (a clone). reconcileStaleRecords re-points such a record to its UNAMBIGUOUS live
+  // cell — decideSelfHeal's single-candidate rule applied at split time, so the guard
+  // below sees accurate liveness. "A guard on one path belongs on every sibling."
+  const loaded = loadAllOrchestrators();
+  const liveCells = (wsId: string): string[] => {
+    try {
+      return listGridCells(wsId).map((c) => c.surfaceId);
+    } catch {
+      return [];
+    }
+  };
+  const reconciled = reconcileStaleRecords({ records: loaded, liveCells, isLive });
+  // Persist any heal the reconcile made so the on-disk record matches the slot
+  // decision (and the daemon + next split agree). writeOrchestrator re-loads and
+  // merges only surfaceId — the two-writers / re-load-before-write guard.
+  reconciled.forEach((r, i) => {
+    const orig = loaded[i]!;
+    if (r.surfaceId !== orig.surfaceId) writeOrchestrator({ ...orig, surfaceId: r.surfaceId });
+  });
+
   // Family + slot are a PURE decision (chooseCaptainSlot, tested without cmux).
   // Anchor the family on the records that OWN the target workspace `ws`, NOT on
   // env: the ⌘⇧Y hotkey runs in a runner tab with no FLEET_SESSION, so deriving
@@ -241,10 +269,10 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
   // Liveness stays surface-level (siblings share a workspace): a closed pane frees
   // its slot.
   const { session: newSession } = chooseCaptainSlot({
-    records: loadAllOrchestrators(),
+    records: reconciled,
     ws,
     fallbackSession: orchestratorSession(),
-    isLive: (r) => surfaceExists({ workspace: r.workspaceId, surface: r.surfaceId }),
+    isLive,
     cap: QUADRANT_CAP,
   });
   const newName = newSession;
