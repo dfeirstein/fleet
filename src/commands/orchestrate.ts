@@ -37,6 +37,7 @@ import {
   inPaneResumeRecipe,
   type CaptainListing,
 } from "./captain-args.js";
+import { chooseCaptainSlot } from "./captain-slot.js";
 import { ensureSharedDaemon } from "./daemon.js";
 
 /** Max Captains per family — a 2×2 quadrant. */
@@ -48,18 +49,6 @@ function slug(name: string): string {
 
 function fleetDir(): string {
   return join(homedir(), ".fleet");
-}
-
-/** The family a session belongs to: its name with any `-N` sibling suffix stripped. */
-function familyOf(session: string): string {
-  return session.replace(/-\d+$/, "");
-}
-
-/** The quadrant index of a session within its family: base is #1, `-N` siblings are N. */
-function indexOf(session: string, family: string): number {
-  if (session === family) return 1;
-  const m = new RegExp(`^${family}-(\\d+)$`).exec(session);
-  return m ? Number(m[1]) : 0;
 }
 
 /** Compose the per-Captain doctrine system prompt and return its file path. */
@@ -241,23 +230,23 @@ export function captainSplit(opts: { daemon?: boolean; command?: string; closeOr
     );
   }
 
-  // Family = the calling session's base name (e.g. yoshi-3 → yoshi). Count the
-  // family's LIVE Captains. Surface-level, not workspace-level: quadrant siblings
-  // share one workspace, so a workspace check would keep counting a Captain whose
-  // pane was closed — wrongly consuming a slot.
-  const family = familyOf(orchestratorSession());
-  const live = loadAllOrchestrators().filter(
-    (o) => familyOf(o.session) === family && surfaceExists({ workspace: o.workspaceId, surface: o.surfaceId }),
-  );
-  if (live.length >= QUADRANT_CAP) {
-    throw new Error(`Quadrant full (${QUADRANT_CAP} Captains) — close one first.`);
-  }
-
-  // Next name = the lowest free slot (base is #1; siblings -2..-4).
-  const taken = new Set(live.map((o) => indexOf(o.session, family)));
-  let n = 1;
-  while (taken.has(n)) n++;
-  const newSession = n === 1 ? family : `${family}-${n}`;
+  // Family + slot are a PURE decision (chooseCaptainSlot, tested without cmux).
+  // Anchor the family on the records that OWN the target workspace `ws`, NOT on
+  // env: the ⌘⇧Y hotkey runs in a runner tab with no FLEET_SESSION, so deriving
+  // family from orchestratorSession() always returned DEFAULT_SESSION ("yoshi") —
+  // mis-naming the sibling and (when the live-count under-counted the owner)
+  // collapsing the slot to the bare family name and CLOBBERING the owner's record
+  // with a clone. The hard uniqueness guard inside refuses any session whose record
+  // is still live, so a clone is impossible even on a transient surfaceExists miss.
+  // Liveness stays surface-level (siblings share a workspace): a closed pane frees
+  // its slot.
+  const { session: newSession } = chooseCaptainSlot({
+    records: loadAllOrchestrators(),
+    ws,
+    fallbackSession: orchestratorSession(),
+    isLive: (r) => surfaceExists({ workspace: r.workspaceId, surface: r.surfaceId }),
+    cap: QUADRANT_CAP,
+  });
   const newName = newSession;
 
   // Split the CURRENT workspace, tiling toward a 2×2 quadrant by pane count:
