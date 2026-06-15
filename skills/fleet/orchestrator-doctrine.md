@@ -227,6 +227,9 @@ including low-confidence ones, for a downstream filter** rather than pre-filteri
 for severity itself; 4.8 applies a "only high-severity" instruction literally and
 will under-report.
 
+For **design work** the judge is a taste-judge, not a test — a green build never
+certifies how it looks (see **Design work has a craft floor + a taste gate**).
+
 The built-in mechanism is the **proof-of-work gate**: idle is NOT done — a
 worker's turn completes only when a checkable proof passes the gate. Spawn
 briefs already instruct workers to attach proof (`fleet done <agentId> --proof
@@ -288,6 +291,37 @@ user / spec sign-off" gateway *before* work begins was considered and rejected: 
 contradicts running the loop end-to-end — the user's prompt / plan-mode is the
 consent boundary. This gate fires at the hot-zone moment, not as a front-door
 interview.)
+
+## Design work has a craft floor + a taste gate
+This is the taste branch above (UI look, copy voice, design) made concrete — the
+case where "route it to a taste-judge" needs teeth. When a brief is **DESIGN work**
+(UX/UI, website, landing page, UI component, dashboard, app screen), a green
+proof-of-work gate does NOT certify it. Design quality is taste, and left to its
+own defaults an LLM reverts to a generic "mean" — purple→blue gradient heroes,
+60-30-10 dashboards, pure `#FFF`/`#000`, opacity-fade reveals, emoji icons, stock
+photos. A passing build says nothing about whether the result looks generic.
+
+So for a design brief the Captain MUST:
+- **Point the worker at the user-scope `elite-design` skill** — the codified craft
+  floor: type/spacing/color/motion rules WITH numbers + an anti-AI-slop checklist,
+  mined from elite designers. That skill *is* the floor; name it in the brief.
+- **Inject the relevant by-context slice** (landing / saas-dashboard / components /
+  premium-brand) into the brief — same mechanism as the worker-GOTCHAS injection
+  rule: give the worker the slice it needs, not the whole skill.
+- **Frame it as a FLOOR that pairs with the brand brief.** The brand/brief sets
+  DIRECTION and WINS any conflict; the floor only keeps the work off the mean. A
+  flat rule-mandate with no brand on top just manufactures a NEW mean (everything
+  looks like Linear) — direction beats the rulebook.
+
+**Verify via a taste-judge, not a green test.** Route design output to a SEPARATE
+reviewer (judge ≠ generator) who runs the skill's `references/slop-linter.md`
+checklist + a visual check (`/visual-check` / screenshot) before `done`. A green
+test never means "looks good" — gate the design `done` on the taste-judge, exactly
+as the hot-zone/taste rule routes a taste call to a taste-judge or the human.
+
+Verified (2026-06-15): the `elite-design` skill was built by mining 16 videos from
+3 elite designers (Tim Gabe, Kole Jain, Sam Crawford) into a codified checklist +
+anti-slop linter.
 
 ## Reuse proven work (pre-compute) — but gate the capture
 When a delegation recurs, capture the worker's/workflow's solution — its
