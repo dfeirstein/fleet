@@ -1,41 +1,21 @@
 // `fleet objective` — loop-until-done. Spawn a worker on a goal, wait for its
 // turn to finish, then run a shell `done-check`. If the check passes, we're
-// done; if not, feed the failure back into the goal and try again, up to
-// --max attempts. This is the orchestration pattern of a stop CONDITION rather
-// than a fixed count: the loop ends when the check passes, not after N tries.
+// done; if not, feed the (distilled) failure back into the goal and try again,
+// up to --max attempts. This is the orchestration pattern of a stop CONDITION
+// rather than a fixed count: the loop ends when the check passes, not after N.
 //
-// ── CLI wiring for src/cli.ts (DO NOT auto-applied — add by hand) ──
-// Add to the HELP string (after the `watch` block):
-//
-//   objective <goal...> --done <check>          Loop a worker until a stop
-//         [--cwd P] [--max N] [--model M]        condition (shell check) passes
-//
-// Add a case to the switch in main():
-//
-//   case "objective": {
-//     const goal = positionals.join(" ").trim();
-//     if (!goal) return fail("objective requires a <goal>");
-//     const doneCheck = str(flags.done);
-//     if (!doneCheck) return fail("objective requires --done \"<shell check>\"");
-//     const res = objective(goal, doneCheck, {
-//       cwd: str(flags.cwd) ?? process.cwd(),
-//       maxIterations: str(flags.max) ? Number(str(flags.max)) : 3,
-//       model: str(flags.model),
-//     });
-//     console.log(res.done
-//       ? `✓ objective met after ${res.iterations} attempt(s)`
-//       : `✗ objective NOT met after ${res.iterations} attempt(s)`);
-//     if (!res.done) process.exitCode = 1;
-//     break;
-//   }
-//
-// And import at the top of cli.ts:
-//   import { objective } from "./commands/objective.js";
+// Two monitor-style modes layer on top (Hermes-inspired): a `--wake-check` gate
+// that skips spending a worker when a cheap deterministic check says nothing
+// changed, and `--no-agent` which runs the `--done` check each tick with NO
+// worker at all (a recurring 0-token monitor that alerts the Captain on FAIL).
+// CLI wiring lives in src/cli.ts (HELP block + `case "objective"`).
 import { execFileSync, spawnSync } from "node:child_process";
 import { spawn } from "./spawn.js";
 import { kill } from "./kill.js";
 import { snapshot } from "./status.js";
 import { verify } from "./verify.js";
+import { notifyOrchestrator } from "./notify.js";
+import { distillFailure, shouldWake } from "../done-loop.js";
 
 export interface ObjectiveOptions {
   cwd: string;
@@ -45,11 +25,26 @@ export interface ObjectiveOptions {
    *  worker — runs in the worker's cwd/worktree and uses the shared gate
    *  (judge≠generator) instead of an inline shell check. (compose B+D) */
   viaVerify?: boolean;
+  /** Pre-spawn gate: a cheap deterministic check whose last `{"wakeAgent":bool}`
+   *  line decides whether to spend a worker this tick (fail-open — see shouldWake). */
+  wakeCheck?: string;
+  /** Sleep this many seconds between ticks → recurring/monitor behavior. Unset
+   *  = today's tight loop (no sleep). */
+  intervalSec?: number;
+  /** Deterministic monitor: never spawn a worker; run `doneCheck` each tick and
+   *  alert the Captain on FAIL. Requires a done-check (validated at the CLI). */
+  noAgent?: boolean;
+  /** Max total loop ticks. Default = maxIterations when intervalSec is unset
+   *  (today's loop is byte-identical), 50 when intervalSec is set. */
+  maxTicks?: number;
 }
 
 export interface ObjectiveResult {
   done: boolean;
   iterations: number;
+  /** Total loop ticks executed (incl. skipped wake-check ticks and monitor
+   *  ticks). `iterations` stays = worker spawns for backward compatibility. */
+  ticks: number;
 }
 
 const POLL_SECONDS = 5;
@@ -65,11 +60,14 @@ function sleepSeconds(s: number): void {
   execFileSync("sleep", [String(s)]);
 }
 
-/** Run the done-check in `cwd`. Exit 0 → satisfied. Captures combined output. */
-function runCheck(cmd: string, cwd: string): { ok: boolean; code: number; output: string } {
+/** Run the done-check in `cwd`. Exit 0 → satisfied. Captures combined output
+ *  (for the failure feed-forward) plus stdout alone (the wake-check verdict
+ *  convention is the last STDOUT JSON line — stderr must not sway it). */
+function runCheck(cmd: string, cwd: string): { ok: boolean; code: number; output: string; stdout: string } {
   const res = spawnSync("bash", ["-c", cmd], { cwd, encoding: "utf8" });
-  const output = `${res.stdout ?? ""}${res.stderr ?? ""}`;
-  return { ok: res.status === 0, code: res.status ?? -1, output };
+  const stdout = res.stdout ?? "";
+  const output = `${stdout}${res.stderr ?? ""}`;
+  return { ok: res.status === 0, code: res.status ?? -1, output, stdout };
 }
 
 function safeKill(idOrLabel: string): void {
@@ -108,14 +106,90 @@ function waitForIdle(agentId: string, timeoutMs: number): string {
 export function objective(goal: string, doneCheck: string, opts: ObjectiveOptions): ObjectiveResult {
   const maxIterations = opts.maxIterations > 0 ? opts.maxIterations : 3;
   const model = opts.model ?? "opus";
-  let currentGoal = goal;
+  const intervalSet = opts.intervalSec != null && opts.intervalSec > 0;
+  const noAgent = opts.noAgent === true;
+  // --max-ticks default: explicit value wins; else 50 once --interval makes this
+  // a recurring monitor; else --no-agent does exactly ONE check (it never spawns,
+  // so it does not borrow the worker's --max budget); else the worker path
+  // mirrors maxIterations so the default tight loop is byte-identical to before.
+  const maxTicks =
+    opts.maxTicks != null && opts.maxTicks > 0 ? opts.maxTicks : intervalSet ? 50 : noAgent ? 1 : maxIterations;
 
-  for (let iteration = 1; iteration <= maxIterations; iteration++) {
-    console.log(`\n── objective: attempt ${iteration}/${maxIterations} ──`);
+  let ticks = 0;
+  let spawns = 0;
+  let currentGoal = goal;
+  // The last --no-agent monitor check result (undefined until one runs). Lets an
+  // interval monitor that completes its tick budget report the real last health
+  // (a monitor that failed its checks must NOT exit success), mirroring the
+  // one-shot --no-agent return below.
+  let lastMonitorOk: boolean | undefined;
+
+  while (ticks < maxTicks) {
+    ticks++;
+    // Spawn-budget guard FIRST, before the wake gate: once the worker budget
+    // (--max) is spent, report exhaustion immediately rather than let a
+    // wake-check skip+sleep keep a doomed objective ticking to --max-ticks
+    // (hours of wasted wall-clock with long intervals). No-op on the default
+    // path: maxTicks == maxIterations exits via the ticks bound before spawns
+    // can reach the budget at a tick's top.
+    if (!noAgent && spawns >= maxIterations) break; // exhausted (loud)
+    // Whether another tick will run after this one — gate the inter-tick sleep
+    // on it so a bounded one-shot (e.g. --max-ticks 1) returns immediately
+    // instead of sleeping a full interval after its final tick.
+    const moreTicks = ticks < maxTicks;
+
+    // Pre-spawn wake gate (Feature B): only spend a worker when the cheap
+    // deterministic check says state changed. Fail-open — see shouldWake. The
+    // gate decides whether to spend a WORKER, so it applies only to the worker
+    // path — never gate the --no-agent monitor (the CLI also rejects that combo,
+    // but stay correct if objective() is called directly).
+    if (opts.wakeCheck && !noAgent) {
+      const wc = runCheck(opts.wakeCheck, opts.cwd);
+      if (!shouldWake(wc.stdout, wc.code)) {
+        console.log(`  wake-check: no work this tick — skipped (0 tokens)`);
+        if (intervalSet) {
+          if (moreTicks) sleepSeconds(opts.intervalSec!);
+          continue;
+        }
+        // Nothing to do right now → success with 0 spawns (one-shot gate).
+        return { done: true, iterations: spawns, ticks };
+      }
+    }
+
+    // Deterministic monitor (Feature C): never spawn a worker. Run the --done
+    // check each tick, report PASS/FAIL, and alert the Captain (urgent) on FAIL.
+    if (noAgent) {
+      const c = runCheck(doneCheck, opts.cwd);
+      lastMonitorOk = c.ok;
+      if (c.ok) {
+        console.log(`  ✓ monitor PASS (tick ${ticks}/${maxTicks}): ${doneCheck}`);
+      } else {
+        console.log(`  ✗ monitor FAIL (exit ${c.code}, tick ${ticks}/${maxTicks}): ${doneCheck}`);
+        try {
+          notifyOrchestrator(`monitor FAIL: \`${doneCheck}\` exited ${c.code}.\n${distillFailure(c.output)}`, true);
+        } catch (e) {
+          // No Captain declared / channel down — keep the monitor alive rather
+          // than crash the loop on the first failed alert.
+          console.log(`  (could not alert orchestrator: ${(e as Error).message})`);
+        }
+      }
+      // Bounded by --max-ticks (default 1 → exactly one check when neither
+      // --interval nor --max-ticks is set). Sleep only between ticks when an
+      // interval is set; the post-loop return reports the LAST check below.
+      if (intervalSet && moreTicks) sleepSeconds(opts.intervalSec!);
+      continue;
+    }
+
+    // Normal worker path. The spawn-budget guard at the top of the loop bounds
+    // spawns separately from ticks (a wake-gated monitor may tick many times but
+    // never exceeds --max worker spawns) — checked there so an exhausted budget
+    // beats the wake gate.
+    spawns++;
+    console.log(`\n── objective: attempt ${spawns}/${maxIterations} ──`);
     const agent = spawn({
       task: currentGoal,
       cwd: opts.cwd,
-      label: `objective-${iteration}`,
+      label: `objective-${spawns}`,
       model,
       mode: "auto",
       launch: true,
@@ -142,21 +216,34 @@ export function objective(goal: string, doneCheck: string, opts: ObjectiveOption
     safeKill(agent.agentId);
 
     if (check.ok) {
-      console.log(`  ✓ ${opts.viaVerify ? "eval gate" : "done-check"} passed on attempt ${iteration}.`);
-      return { done: true, iterations: iteration };
+      console.log(`  ✓ ${opts.viaVerify ? "eval gate" : "done-check"} passed on attempt ${spawns}.`);
+      return { done: true, iterations: spawns, ticks };
     }
 
-    console.log(`  ✗ ${opts.viaVerify ? "eval gate" : "done-check"} failed (exit ${check.code}) on attempt ${iteration}.`);
-    // Feed the failure forward so the next worker has the context it needs.
+    console.log(`  ✗ ${opts.viaVerify ? "eval gate" : "done-check"} failed (exit ${check.code}) on attempt ${spawns}.`);
+    // Feed the DISTILLED failure forward so the next worker fixes, not thrashes.
     currentGoal =
       `${goal}\n\n` +
       `---\n` +
-      `A previous attempt (#${iteration}) did not satisfy the done-check \`${doneCheck}\`.\n` +
+      `A previous attempt (#${spawns}) did not satisfy the done-check \`${doneCheck}\`.\n` +
       `Its output was:\n\n` +
-      `${check.output.trim() || "(no output)"}\n\n` +
+      `${distillFailure(check.output)}\n\n` +
       `Fix the remaining issues so that running \`${doneCheck}\` exits 0.`;
+    // Pause before the next attempt — but not after the final tick or once the
+    // spawn budget is spent (the next iteration would just break).
+    if (intervalSet && moreTicks && spawns < maxIterations) sleepSeconds(opts.intervalSec!);
   }
 
-  console.log(`\n✗ objective not met after ${maxIterations} attempts.`);
-  return { done: false, iterations: maxIterations };
+  // The loop ran its course. Genuine exhaustion (done:false) is ONLY when a
+  // worker actually ran and never passed (a passing attempt early-returns).
+  if (spawns > 0) {
+    console.log(`\n✗ objective not met after ${spawns} attempt(s).`);
+    return { done: false, iterations: spawns, ticks };
+  }
+  // No worker ran. An interval --no-agent monitor reports its LAST check (a
+  // monitor that kept failing must not exit success — mirrors the one-shot
+  // return); a pure wake-gated run that never even checked is a clean success.
+  const done = lastMonitorOk ?? true;
+  console.log(`\n${done ? "✓" : "✗"} loop completed ${ticks} tick(s) — no worker spawned (last monitor: ${lastMonitorOk === undefined ? "n/a" : lastMonitorOk ? "PASS" : "FAIL"}).`);
+  return { done, iterations: spawns, ticks };
 }
