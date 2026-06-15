@@ -189,6 +189,37 @@ Escalate only as far as the task needs — going bigger costs far more tokens:
    tokens — and never loop a trivial task (the harness costs more than the task).
    The daemon is the guardrail; `/loop`/`/schedule` cover recurring/timed variants.
 
+### Native subagents (the Agent/Task tool) — subagents READ, fleet WRITES
+The native `Agent`/`Task` subagent is a *sideways* substrate, not a higher rung — don't
+renumber the ladder around it. **Default-deny: a subagent READS; the fleet WRITES.** Any
+mutation of a tracked repo (edit/build/fix/refactor/commit) goes to a **fleet worker**
+(tier 2+), never a subagent — because a mutating subagent is an **ungated write**: no proof
+gate (`fleet done --proof`), no visible cmux pane, no `fleet send` to steer mid-flight, and in
+THIS harness no way to continue it (one-shot). Its output lands as fact with none of the gates
+the fleet exists to impose — exactly the drift the ladder prevents.
+
+Use a subagent ONLY in these lanes:
+- **Read-only recon / research that returns a digest** — sweep many files or sources and hand
+  back a conclusion (the `Explore` / `Plan` / `general-purpose` agents). Prefer it for parallel
+  read fan-out; this is the lane that keeps subagents genuinely useful. It mirrors Claude Code's
+  built-in `Explore`/`Plan` agents, which are **read-only by design** (denied Write/Edit).
+- **Non-repo, one-shot, result-IS-the-deliverable** — allowed only when ALL three hold: outside
+  any tracked git repo (scratch HTML, a throwaway script, a `/tmp` oracle harness), fully
+  specifiable in one shot, and the artifact itself is the output. A tracked-repo mutation never
+  qualifies.
+- **Workflow-internal subagents are exempt** — a workflow IS an orchestration tier (tier 4) with
+  its own encoded verify/dedup/synthesis; its clean-context subagents writing artifacts is the
+  intended design, not this anti-pattern.
+
+**Anti-pattern (named):** never `run_in_background` an `Agent` to build / edit / fix in a tracked
+repo. If it writes to a repo, it's a fleet worker.
+
+Why this is a rule, not a preference: Anthropic reports "LLM agents are not yet great at
+coordinating and delegating to other agents in real time," and Cognition's "don't build
+multi-agents" shows parallel agents making **conflicting implicit decisions** that integrate into
+drift. A fleet worker is the same model intelligence with the gates bolted on — visible,
+steerable, proof-gated — so when a write is involved, route it through the fleet.
+
 ### Workflow vs Fleet — decide by task SHAPE; it's YOUR call, not the user's
 This is the Captain's decision — make it from the work's shape and act. Don't bounce
 "should this be a workflow?" back to the user, and don't wait to be told "use a
