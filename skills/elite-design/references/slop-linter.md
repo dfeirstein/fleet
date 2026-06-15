@@ -20,7 +20,8 @@ is just a new mean.
   nav/header/footer or large saturated background sections? *Fix: near-monochrome
   neutral canvas; accent reserved for action.*
 - [ ] **Accent is a full 50–950 ramp, not one hardcoded hex** reused for
-  button/hover/link alike? *Fix: 10-step ramp — light rest 500/600, hover 700, links
+  button/hover/link alike? *(needs source/DOM/CSS, not render — mark N/A if screenshot-only)*
+  *Fix: 10-step ramp — light rest 500/600, hover 700, links
   400/500; dark rest 300/400.*
 - [ ] **Color was NOT model-picked** into bright, clashing, low-cohesion hues (5
   saturated at once, dark-on-dark cards, random #240CAF dumped everywhere)? *Fix:
@@ -42,7 +43,8 @@ is just a new mean.
   gap-8 on every section regardless of context? *Fix: lock to the 8-pt (4/8) grid;
   scale gap-to-CTA with heading size (160/40, 120/32, 80/24, 48/16).*
 - [ ] **No OS emoji** (✅🔥👁️📅) as status/action icons, no generic free-tier Flaticon
-  vector line icons, no 15-min Canva-tier logo? *Fix: ONE monochromatic SVG set
+  vector line icons, no 15-min Canva-tier logo? *(needs source/DOM/CSS, not render — mark
+  N/A if screenshot-only)* *Fix: ONE monochromatic SVG set
   (Phosphor/Lucide); no graphics > bad graphics.*
 - [ ] **No generic stock photos** ('office high-fives', 'people pointing at laptops'),
   AI studio shots, or isometric vector dashboard illustrations — and no static
@@ -50,7 +52,8 @@ is just a new mean.
   product UI or genuine/messy real photography.*
 - [ ] **No default card** (white box + drop shadow + icon + translateY(−5px) hover)
   repeated in a rigid grid? *Fix: video/GIF-backed or content-rich cards, positional
-  fan-out.*
+  fan-out.* UNLESS the card's content is genuine/non-decorative (real product data, CLI
+  output, charts) — the tell is a DECORATIVE white-box-in-a-grid, not any bordered card.
 - [ ] **No animation-as-flair** — no load-in slides, scroll-jacking, heavy parallax,
   spinning/bouncing, autoplay 3D (Spline/Rive), 'buttery-smooth' demos to impress
   other designers? *Fix: motion guides/confirms only; spectacle only if engineered +
@@ -74,7 +77,8 @@ is just a new mean.
   body) mathematically.*
 - [ ] **Dark mode is NOT a math-inverted light mode** — no neon, no vibrating saturated
   chips, no pure-white text, no tiny 1–2% lightness steps, and surfaces get LIGHTER as
-  they elevate (not darker)? *Fix: elevate with light (Brightness +4–6, Sat −10–20),
+  they elevate (not darker)? *(needs source/DOM/CSS, not render — mark N/A if screenshot-only)*
+  *Fix: elevate with light (Brightness +4–6, Sat −10–20),
   4–6% steps, brighten borders, desaturate accents.*
 - [ ] **Designed with worst-case real content, not perfect dummy data** — long names
   don't overflow, white icons don't vanish on bright photos, strings don't push price
@@ -95,6 +99,10 @@ is just a new mean.
   gap-8–gap-16 gutters; let elements breathe.*
 
 ## Additional anti-pattern catches (from the designers)
+- [ ] **Every body / caption / muted / secondary text tier meets WCAG AA against its
+  ACTUAL background** — 4.5:1 normal, 7:1 premium body, 3:1 large — **including dark mode
+  and the dimmest muted tier**; verify by computed contrast, never eyeball? *Fix: lighten
+  the muted tier until it clears 4.5:1.*
 - [ ] **One font family** (or a second only with a hard rationale), all sizes from a
   fixed scale, every computed value rounded to a whole/8-pt pixel (22.5→24 — no blurry
   sub-pixel)?
@@ -107,12 +115,15 @@ is just a new mean.
 - [ ] **Destructive action is red** (never on-brand purple Delete); semantic
   green/yellow/blue kept in the palette even off-brand?
 - [ ] **Charts in OKLCH** (lock L ~0.5682 / C ~0.1136, step hue 25–30), not the reused
-  brand ramp or hand-picked HSL/RGB with unequal perceived brightness?
+  brand ramp or hand-picked HSL/RGB with unequal perceived brightness? *(needs
+  source/DOM/CSS, not render — mark N/A if screenshot-only)*
 - [ ] **Nested corner radii** (inner = outer − padding); shadows ~5–10% opacity high
-  blur, hue-shifted cooler — not flat black?
+  blur, hue-shifted cooler — not flat black? *(needs source/DOM/CSS, not render — mark
+  N/A if screenshot-only)*
 - [ ] **No dead/utility-free AI sections** (redundant KPIs, 'Current Plan: Free' filler)
   — deleted and rebuilt from human logic, not patched?
 - [ ] **Mobile**: body 16–18px min, media focal-cropped (not whole-box scaled to
   illegibility), wrapper overflow-x:hidden, loaders ≤2s?
 - [ ] **Instrumented before launch** — load <3s on 4G, GA4/heatmaps live, drop-off
-  hunted (for shippable production pages)?
+  hunted (for shippable production pages)? *(needs source/DOM/CSS, not render — mark N/A
+  if screenshot-only)*

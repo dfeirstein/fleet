@@ -68,16 +68,20 @@ function backupStamp(): string {
 /**
  * Symlink a repo skill into `~/.claude/skills/<name>`, idempotently.
  * A correct symlink is left untouched; a pre-existing REAL dir (a hand-edited or
- * pre-shipped copy) is moved to a timestamped `.bak` first, so re-running never
+ * pre-shipped copy) is moved to a timestamped backup first, so re-running never
  * silently destroys it before linking. Returns the underlying `link()` result.
  */
 function linkSkill(root: string, home: string, name: string): LinkResult {
   const target = join(root, "skills", name);
   const linkPath = join(home, ".claude", "skills", name);
   // Back up a real dir (not a symlink) before link() — otherwise link() would
-  // see it as a conflict and refuse, leaving the skill un-updatable.
+  // see it as a conflict and refuse, leaving the skill un-updatable. The backup
+  // lands OUTSIDE the skills scan path (`~/.claude/skill-backups/`) so it never
+  // resurfaces as a phantom discoverable skill (a `.bak` left inside `skills/`
+  // gets enumerated by Claude Code's skill scanner as a duplicate).
   if (existsSync(linkPath) && !isSymlink(linkPath)) {
-    const bak = `${linkPath}.${backupStamp()}.bak`;
+    const bak = join(home, ".claude", "skill-backups", `${name}.${backupStamp()}`);
+    mkdirSync(dirname(bak), { recursive: true });
     renameSync(linkPath, bak);
     console.log(`  ✓ backed up existing ${name} skill dir → ${bak}`);
   }
