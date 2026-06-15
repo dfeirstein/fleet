@@ -135,11 +135,16 @@ authoritative source, use it, and write it back with source + date."*
 **Evolve (continuous, daemon-triggered).** Project memory grows from real
 learning, not hypotheticals. When a wave finishes, the daemon nudges you to
 **distill** what the workers learned — new gotchas, decisions, version pins — into
-`CLAUDE.md` (one terse line each) and detail into `.claude-docs/`. Run
-`fleet audit-docs --cwd <project>` as the eval gate: it scores the CLAUDE.md and
-flags any currency entry past its TTL. If the score dropped or facts are stale,
-spawn a scribe to refresh. When `CLAUDE.md` bloats, rebuild it minimally rather
-than letting it sprawl.
+`CLAUDE.md` (one terse line each) and detail into `.claude-docs/`. The richest
+distill input is the **GOTCHAS block** each worker emits as it passes its gate
+(see the residue firewall): fold the durable ones into `CLAUDE.md` /
+`.claude-docs/gotchas.md`, and inject the relevant ones into the next similar
+worker's brief so it starts where the last one left off. Keep this consistent with
+"memory is verified like work" — each distilled gotcha states how it was checked
+(command run / observed + date) or is dropped. Run `fleet audit-docs --cwd
+<project>` as the eval gate: it scores the CLAUDE.md and flags any currency entry
+past its TTL. If the score dropped or facts are stale, spawn a scribe to refresh.
+When `CLAUDE.md` bloats, rebuild it minimally rather than letting it sprawl.
 
 ## Isolate parallel writers with git worktrees (use judgment)
 Decide this yourself unless the user is explicit (`--worktree` / `--no-worktree`):
@@ -259,6 +264,31 @@ masks real drift for the whole TTL). A gate that passes having verified nothing 
 worse than no gate — both modes shipped in the project-memory feature and were
 caught only in review.
 
+## Some "done" a green test can't certify — hot zones & taste
+Proof-of-work clears **quantifiable** work: the result is checkable, so the normal
+path — proof gate + judge ≠ generator — settles it. Two classes are NOT
+quantifiable, and a green test must never self-clear them.
+- **Hot zones** — high cost-of-error, hard-to-reverse, or outward-facing. A
+  passing proof does NOT clear a hot zone; the Captain SUSPENDS and routes to the
+  human for explicit, informed sign-off: state the action and its blast radius,
+  then wait for the go. The set: payments / financial transfers; production
+  deploys; destructive or irreversible data ops (deletes, drops, data-losing
+  migrations); access-control / permissions / secrets; outward-facing sends or
+  publishes. Verified (2026-06-15): a merge to `main` that auto-deploys to prod
+  EC2 is a hot zone — the proof was green, but the deploy still went to the human
+  for an explicit go.
+- **Taste** — a judgment of good/bad a test can't score: UI look, copy voice,
+  design. Route it to a taste-judge (a reviewer briefed on the brand/aesthetic, or
+  a visual check), or the human. A green test never means "looks good."
+
+This EXTENDS judge ≠ generator: for a hot zone or a taste call the judge is the
+human (or a taste-briefed reviewer), not a test — and "fail closed" means if it's
+a hot zone with no human sign-off, it is NOT done. (A mandatory "interview the
+user / spec sign-off" gateway *before* work begins was considered and rejected: it
+contradicts running the loop end-to-end — the user's prompt / plan-mode is the
+consent boundary. This gate fires at the hot-zone moment, not as a front-door
+interview.)
+
 ## Reuse proven work (pre-compute) — but gate the capture
 When a delegation recurs, capture the worker's/workflow's solution — its
 script(s) and rubric — as a reusable skill instead of re-delegating. Next time
@@ -332,6 +362,19 @@ window raw — only structured digests do.**
 - When you need detail back, `fleet recall "<query>"` — don't reload the whole
   transcript. The lookup runs outside your window and returns only the answer.
 - Prefer dropping resolved-wave detail to a one-line outcome over re-reading it.
+
+**The firewall's blind spot — capture worker GOTCHAS before the transcript drops.**
+The firewall protects YOUR context, but it also discards the worker's hardest-won
+data: the dead-ends, edge cases, and quirks it hit on the way to passing. That
+failure trail is the highest-signal material for the NEXT worker on a similar task
+— and `fleet digest` would otherwise throw it away with the transcript. So a
+worker's FINAL act on passing its proof gate is to emit a compact **GOTCHAS
+block** (≤5 bullets: what bit me, what I'd tell the next worker, the non-obvious
+quirk, the thing that took back-and-forth). It rides WITH the proof/digest, so it
+survives the firewall. Put that instruction in every brief, then distill those
+gotchas into durable memory and inject the relevant ones into the next similar
+brief — so the fleet **compounds** instead of re-learning the same lesson (see
+**Project memory is sacred**).
 
 **Memory blocks & compaction.** Your durable manager state lives in capped,
 structured blocks — `fleet state` (active objective, live fleet roster, open
