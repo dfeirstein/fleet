@@ -28,6 +28,7 @@ import { readOutcomes, readAllOutcomeLines } from "./outcomes.js";
 import { gainReport } from "./outcomes-gain.js";
 import { digest, renderDigests } from "./commands/digest.js";
 import { recall } from "./commands/recall.js";
+import { transcriptSearch, expandContext, fmtDate } from "./commands/transcript-search.js";
 import { profile } from "./commands/profile.js";
 import { renderState, setObjective, addDecision, addRisk, clearTransient } from "./commands/state.js";
 import { skillAudit } from "./commands/skill-audit.js";
@@ -173,6 +174,18 @@ Commands:
                                              the true final report — over the screen)
   recall <query...> [--cwd P] [--qmd]        Search the durable store (outcome log +
                                              .claude-docs) via grep; --qmd uses QMD
+  transcript-search "<query>"                Keyword search the EPISODIC store — the
+        [--project <slug>] [--since <date>]  Claude Code transcripts under
+        [--role assistant|user]              ~/.claude/projects (the gap recall leaves).
+        [--all-projects] [--semantic]        Default scope = the current project slug;
+                                             --all-projects widens to every project
+                                             (broad + cross-project, may surface
+                                             secrets — use sparingly). --since filters
+                                             on timestamp, --role on message.role.
+                                             Secrets redacted; hits dated newest-first.
+                                             --semantic (QMD) is a later wave (not wired).
+  transcript-search --expand <session> <uuid>  Print the turns around a hit by walking
+                                             the parentUuid chain (id-prefixes ok)
   profile [--cwd P]                          Write a per-project profile (.claude-docs)
                                              from the outcome log — load it on re-entry
   outcomes [--tail N] [--json]               Show the delegation-outcome log
@@ -609,6 +622,57 @@ async function main(): Promise<void> {
         console.log(`${res.hits.length} hit(s) for "${query}" via ${res.source}:`);
         for (const h of res.hits) console.log(`  ${h}`);
       }
+      break;
+    }
+    case "transcript-search": {
+      if (flags.semantic === true) {
+        return fail("semantic tier not yet wired — keyword only (drop --semantic)");
+      }
+      const cwd = str(flags.cwd) ?? process.cwd();
+      const allProjects = flags["all-projects"] === true;
+      // --expand <session> <uuid>: walk the parentUuid chain around a hit.
+      if (flags.expand !== undefined) {
+        const session = str(flags.expand) ?? positionals[0];
+        const uuid = str(flags.expand) ? positionals[0] : positionals[1];
+        if (!session || !uuid) return fail("transcript-search --expand requires <session> <uuid> (id-prefixes ok)");
+        const res = expandContext(session, uuid, { cwd, project: str(flags.project), allProjects });
+        if (!res || res.turns.length === 0) {
+          console.log(`no session/turn matching ${session} · ${uuid} (${allProjects ? "all projects" : "this project"})`);
+          break;
+        }
+        console.log(`context around ${session} · ${uuid} (${res.turns.length} turn(s)):`);
+        for (const t of res.turns) {
+          const mark = t.isHit ? "▶" : " ";
+          const body = t.text ? t.text.slice(0, 240) : "(tool turn — no conversational text)";
+          console.log(`${mark} ${fmtDate(t.timestamp)} · ${t.role.padEnd(9)} — ${body}`);
+        }
+        break;
+      }
+      const query = positionals.join(" ").trim();
+      if (!query) return fail('transcript-search requires a "<query>"');
+      const role = str(flags.role);
+      if (role && role !== "assistant" && role !== "user") return fail('transcript-search --role must be "assistant" or "user"');
+      const res = transcriptSearch(query, {
+        cwd,
+        project: str(flags.project),
+        since: str(flags.since),
+        role,
+        allProjects,
+      });
+      const where = res.scope === "all-projects" ? "all projects" : res.slug;
+      if (res.noStore) {
+        console.log(`no transcripts for ${where}`);
+        break;
+      }
+      if (res.hits.length === 0) {
+        console.log(`no transcript matches for "${query}" in ${where} (via ${res.source})`);
+        break;
+      }
+      console.log(`${res.hits.length} hit(s) for "${query}" in ${where} (via ${res.source}), newest first:`);
+      for (const h of res.hits) {
+        console.log(`  session ${h.sessionId.slice(0, 8)} · ${fmtDate(h.timestamp)} · ${h.role.padEnd(9)} · turn ${h.uuid.slice(0, 8)} — ${h.text}`);
+      }
+      console.log(`expand a hit: fleet transcript-search --expand <session> <turn>`);
       break;
     }
     case "profile": {

@@ -23,7 +23,7 @@ function repoRoot(): string {
 // Repo skills that ship from `skills/<name>` and get symlinked into
 // `~/.claude/skills/<name>` so Claude Code discovers them AND they ride fleet's
 // auto-update. Adding the next skill is a one-line append here.
-export const REPO_SKILLS = ["fleet", "elite-design"] as const;
+export const REPO_SKILLS = ["fleet", "elite-design", "transcript-recall"] as const;
 
 function isSymlink(p: string): boolean {
   try {
