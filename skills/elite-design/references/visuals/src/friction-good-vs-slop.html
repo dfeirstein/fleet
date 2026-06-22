@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s7); }
+  .col { display: flex; flex-direction: column; gap: var(--s4); }
+
+  .panel-label {
+    display: flex; align-items: center; gap: var(--s2);
+    font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .panel-label .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .good .dot { background: var(--accent); }
+  .good     { color: var(--accent); }
+  .bad  .dot { background: #EF5350; }
+  .bad      { color: #EF5350; }
+
+  .panel { height: 440px; border-radius: 16px; overflow: hidden; position: relative; }
+
+  .tells { font-size: 14px; color: var(--ink-3); letter-spacing: 0.01em; }
+
+  /* ---------- GOOD: one focal point, 8-pt rhythm, one accent, one font ---------- */
+  .good-panel {
+    background: var(--surface); border: 1px solid var(--border);
+    padding: var(--s8); display: flex; flex-direction: column; gap: var(--s5);
+    justify-content: center;
+  }
+  .good-panel .eyebrow { font-size: 13px; }
+  .good-panel h2 {
+    font-size: 44px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.05;
+    color: var(--ink);
+  }
+  .good-panel p { font-size: 18px; line-height: 1.55; color: var(--ink-2); max-width: 440px; }
+  .good-panel .cta {
+    align-self: flex-start; margin-top: var(--s2);
+    background: var(--accent); color: #1A1206; font-weight: 600; font-size: 16px;
+    padding: 14px 24px; border-radius: 10px; letter-spacing: 0.01em;
+  }
+
+  /* ---------- BAD: competing focal points, random spacing, 4 fonts, 5 colors ---- */
+  .bad-panel {
+    background: #FFFFFF; border: 1px solid #000;
+    padding: 18px; position: relative; overflow: hidden;
+  }
+  .bad-panel .blob {              /* the banned purple→blue gradient blob */
+    position: absolute; top: -60px; right: -40px; width: 260px; height: 260px;
+    border-radius: 50%; filter: blur(8px);
+    background: radial-gradient(circle at 30% 30%, #8B5CF6, #3B82F6 70%, transparent);
+    opacity: 0.85;
+  }
+  .bad-panel .badgeRow { position: relative; }
+  .bad-panel .badge {
+    display: inline-block; color: #fff; font-family: 'Times New Roman', serif;
+    font-weight: 700; font-size: 13px; padding: 5px 9px; border-radius: 4px;
+  }
+  .bad-panel .b-red   { background: #EF4444; margin-right: 11px; }
+  .bad-panel .b-green { background: #22C55E; margin-left: 17px; }
+  .bad-panel h2 {
+    font-family: Georgia, 'Times New Roman', serif; font-style: italic;
+    color: #3B82F6; font-size: 40px; line-height: 1.0; margin-top: 23px;
+    text-shadow: 1px 1px 0 #8B5CF6;
+  }
+  .bad-panel .price { font-family: Georgia, serif; color: #111; margin-top: 9px; }
+  .bad-panel .price .n  { font-size: 30px; font-weight: 700; }
+  .bad-panel .price .pm { font-size: 28px; color: #22C55E; }   /* /mo as big as price */
+  .bad-panel .sub {
+    font-family: 'Comic Sans MS', 'Comic Sans', cursive; color: #6B7280;
+    font-size: 16px; margin-top: 7px; margin-left: 13px; max-width: 330px;
+  }
+  .bad-panel .ctas { margin-top: 19px; }
+  .bad-panel .c1 {     /* competing CTA #1 */
+    background: #22C55E; color: #fff; font-family: Arial, sans-serif; font-weight: 700;
+    font-size: 17px; padding: 12px 18px; border-radius: 24px; margin-right: 14px;
+    box-shadow: 3px 3px 0 #16A34A;
+  }
+  .bad-panel .c2 {     /* competing CTA #2, different color + destination */
+    background: #8B5CF6; color: #fff; font-family: Georgia, serif; font-style: italic;
+    font-size: 15px; padding: 10px 22px; border-radius: 6px;
+  }
+  .bad-panel .clip {   /* clipped/overlapping text */
+    position: absolute; bottom: 8px; left: 21px; right: -30px;
+    font-family: 'Comic Sans MS', cursive; font-size: 13px; color: #9CA3AF;
+    white-space: nowrap; overflow: hidden;
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · friction</div>
+    <h1 class="title">Good friction vs. AI slop</h1>
+    <p class="caption">
+      <strong>Good friction</strong> = one intense focal point + clean type around it; the eye is
+      grabbed, then guided. <strong>Bad friction</strong> = visual noise — competing focal points,
+      too many fonts/colors, elements added only to fill space. Cut until one thing wins.
+    </p>
+  </header>
+
+  <section class="compare">
+    <div class="col">
+      <div class="panel-label good"><span class="dot"></span>Good friction</div>
+      <div class="panel good-panel">
+        <div class="eyebrow">Pricing</div>
+        <h2>One plan.<br>Everything in.</h2>
+        <p>Flat $20/month. No seats, no tiers, no surprises — cancel anytime.</p>
+        <div class="cta">Start free trial →</div>
+      </div>
+      <div class="tells">one focal point · 8-pt rhythm · one accent · one font</div>
+    </div>
+
+    <div class="col">
+      <div class="panel-label bad"><span class="dot"></span>Bad friction — slop</div>
+      <div class="panel bad-panel">
+        <div class="blob"></div>
+        <div class="badgeRow">
+          <span class="badge b-red">★ LIMITED TIME</span>
+          <span class="badge b-green">✓ BEST VALUE!!</span>
+        </div>
+        <h2>Unlock Your<br>Potential Today!</h2>
+        <div class="price"><span class="n">$20</span><span class="pm"> / month</span></div>
+        <div class="sub">The only plan you'll ever need to truly succeed and grow and scale!!!</div>
+        <div class="ctas">
+          <span class="c1">Buy Now!</span>
+          <span class="c2">Learn More</span>
+        </div>
+        <div class="clip">Plus get our exclusive bonus bundle absolutely free when you sign up before midnight tonight only —</div>
+      </div>
+      <div class="tells">competing focal points · random spacing · 4 fonts · 5 colors</div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

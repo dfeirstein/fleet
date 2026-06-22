@@ -87,3 +87,31 @@ The per-designer extractions were fused into `master`: `sharedElitePrinciples`,
 across the by-context references), `byContext` (landing / saasDashboard / components /
 premiumBrand → the four `references/*.md` files), and `referenceLibrary`
 (→ `references/library.md`).
+
+## Video-frame references (layout & composition)
+`references/layout-composition.md` is mined from a separate, newer source —
+**"The FULL 2026 Guide To Layout & Composition" (Satori Graphics)**,
+`https://www.youtube.com/watch?v=PKfZ1gnVJ44`. Alongside the hand-authored diagrams,
+`references/visuals/frames/` carries a small set of **real stills from that video's own
+frames**, each composited with a caption bar in the locked diagram style so a concept can
+be shown by an actual example, not only a clean diagram. The raw stills live in
+`frames/raw/`; the captioned teaching cards are the `frames/*.png` deliverables.
+
+Frames captured 2026-06-19 (timestamps are of the extracted still, picked for the clearest
+moment that shows the concept):
+- `frame-basic-direction.png` — **01:18** — a Nike "Just Do It" poster with explicit red
+  arrows tracing the swoosh + the athlete's gaze (ties to eye-flow level 1 · Basic direction).
+- `frame-layered-paths.png` — **03:32** — one main route A → B plus smaller micro-routes across
+  three posters (ties to eye-flow level 3 · Layered paths).
+- `frame-flow-disruption.png` — **06:24** — a square rotated 45° breaking the upright
+  Art-SYNc poster grid (ties to eye-flow level 5 · Flow disruption).
+- `frame-temporal-flow.png` — **08:07** — Apple's iMac page metering the scroll, impact →
+  linger → release (ties to eye-flow level 6 · Temporal flow).
+- `frame-break-grid.png` — **10:53** — oversized warped "LESSONS" type spanning and escaping
+  the column grid (ties to Grid systems · spanning = dominance / intentional grid-breaks).
+- `frame-friction.png` — **26:18** — three posters where the saturated red fish wins by
+  contrast (ties to Friction — good vs bad; pairs with `friction-good-vs-slop.png`).
+
+These are short factual stills used as in-skill teaching references (internal craft tool,
+not redistribution); credited to Satori Graphics in each caption. Only the frames are kept
+in-repo — the source video is downloaded to a temp location and never committed.

@@ -85,6 +85,43 @@ floor applies. (For a one-line CSS/copy tweak, just make the edit.)
    is a PASS/FAIL checklist a taste-judge runs against the RENDERED design. It is
    this skill's own proof artifact. Don't claim done until it passes.
 
+## Process — the expensive-AI design pipeline
+The operating sequence that makes "expensive-looking" the default, not a lucky accident.
+Five ordered moves layered ON TOP of the floor — they sequence the checklist, they don't
+replace it; the brand brief still sets direction, this pipeline only governs *how* you
+execute it.
+
+1. **Design persona, not a generic prompt** — commit the type scale (numbers), color system
+   (hex), and VIBE KEYWORDS naming a real movement ("Swiss / editorial / high-contrast");
+   ban vague words ("clean", "professional"). → steps **2–12**.
+2. **Bold image mood board, not a final site** — generate "impossible" frames with an image
+   model (Gemini / GPT) — overlapping type, broken grid, 3D, editorial — to escape box-builder
+   defaults; DIRECTION/mood only, never a literal layout; curate favorites. → folds into step **1**.
+3. **Grid rebuild (trace-and-snap) — the secret sauce** — drop the favorite frame in as a faint
+   ~30% underlay, rebuild over it, then CORRECT every measurement to grid math (8-pt spacing,
+   type-scale sizes: 16 not 13, 20 not 19). Keep the AI's positioning, apply a designer's rigor —
+   this snap pass removes the "cheap AI" signal. → steps **4 / 6 / 7** + `references/layout-composition.md`.
+4. **Signature component injection — the "expensive" tell** — hand-craft ONE high-effort
+   micro-interaction a drag-and-drop builder can't (3D tilt-to-cursor bento card, magnetic/
+   expanding cursor, scroll-reveal mask); damped, on-brand, reduced-motion-safe. → steps **17 / 18**.
+5. **Taste gate — adversarial, by a DIFFERENT model.** The builder does NOT grade its own
+   design (a generator grades itself kindly). After render, a SEPARATE critic — ideally a
+   DIFFERENT model lineage — scores the RENDERED output against `references/slop-linter.md`
+   + the captured taste rules and reports EVERY issue, even low-confidence. It gates
+   quality, never direction — the brand brief still wins. Use vision for *look* (e.g. a
+   Gemini image-analysis pass on the screenshot) and a code/interaction/a11y pass (e.g.
+   Codex/GPT) for the parts vision can't see. Fixes loop back to the builder and re-render
+   until it passes; only THEN does it reach the human, the terminal judge. Principle:
+   judge ≠ generator means a different PARTY and ideally a different MODEL — a same-model
+   critic shares the builder's blind spots and gives false confidence. The human still
+   catches novel slop the models miss; every such catch becomes a NEW rule in
+   `references/slop-linter.md` (the list grows; the human-in-the-loop shrinks but never
+   hits zero).
+
+**In the Fleet:** the Captain runs Phase 2 (generation) + curates favorites; a worker runs
+Phases 3–4, and a SEPARATE critic (a different model) runs the gate — never the builder
+grading itself.
+
 ## Master checklist (22 codified steps)
 The faithful, numbers-intact craft sequence. Apply top-to-bottom; the per-context
 references narrow it to ~10 rules for your task.
@@ -92,7 +129,10 @@ references narrow it to ~10 rules for your task.
 1. **RESEARCH FIRST** — never open a blank canvas or a template. Pull 3–6
    best-in-class references (Lapa.ninja, Typewolf for landing; Mobbin for product
    UI), sort each as Stylistic (color/type/shape) vs Structural (page sequence),
-   and plan to recombine — steal structure, never a whole page.
+   and plan to recombine — steal structure, never a whole page. Then generate a
+   bold, even "impossible" image-model mood board (Gemini / GPT — overlapping type,
+   broken grid, 3D, editorial) as DIRECTION not a final layout, and curate the
+   favorites to trace in Phase 3.
 2. **STRATEGY BEFORE PIXELS** — define the ONE feeling and the single primary
    action; name the specific audience avatar (copy bold enough to repel the wrong
    client). Wireframe in gray boxes on a 12-col grid to answer what the eye lands
@@ -110,6 +150,9 @@ references narrow it to ~10 rules for your task.
 6. **LOCK SPACING TO THE 8-PT (4/8) GRID** — 4,8,12,16,24,32,48,64; switch to
    exponential steps above ~80px (200→264→360→488). No 10/11/15/17/23/25px.
    Section vertical padding ~py-24/py-32 (120px+); grid gutters gap-8–gap-16.
+   **Trace-and-snap:** place the chosen mood frame as a faint ~30% underlay, rebuild the
+   composition over it, then snap EVERY value to this grid + the type scale (16 not 13,
+   20 not 19) — the move that converts AI creativity into designer rigor.
 7. **SIZE COMPONENTS ON THE GRID** — buttons LG 64px / MD 48px / SM 40px tall with
    horizontal padding = 2× vertical; icons in fixed steps (24/64/96) sized to
    adjacent text's line-height, not font-size.
@@ -152,7 +195,10 @@ references narrow it to ~10 rules for your task.
     page-load reveal, fast uniform ~300ms for every interaction. Reveal by
     clip/mask (overflow:hidden) not a flat opacity fade; pair object entries with a
     10°→0° rotation. Ban scroll-jacking/heavy-parallax/spinning unless tied to
-    genuine 3D storytelling with damped physics.
+    genuine 3D storytelling with damped physics. **Plant ONE signature
+    micro-interaction** a drag-and-drop builder can't — a bento card tilting in 3D
+    toward the cursor, a magnetic/expanding custom cursor, a scroll-reveal mask — as the
+    primary "expensive/custom" tell; keep it damped, on-brand, and prefers-reduced-motion-safe.
 19. **CUT COPY 50%, THEN 50% AGAIN** — punchy headlines, short sentences, bolded
     keywords; delete any sentence whose removal doesn't make the page worse. Show
     pricing as a real number/minimum; oversize price vs '/month'.
@@ -181,3 +227,24 @@ references narrow it to ~10 rules for your task.
 - `references/library.md` — best-in-class sites/apps to study, by exemplar + context.
 - `references/sources.md` — provenance: the 3 designers + 16 source videos (mined
   2026-06-15). Makes this skill auditable + updatable.
+
+### Visual references (VIEW before composing)
+`references/visuals/` holds rendered **diagrams** + real captioned **video-frame** examples — the
+picture companion to `references/layout-composition.md`. When you compose a layout, **OPEN the
+relevant image**, don't just read the prose: type scale, grid line-work, and eye-flow read faster
+as a picture than as a rule. Diagrams (`references/visuals/`):
+- `type-scale.png` — Major-Third scale, rendered
+- `eye-flow-ladder.png` — six eye-flow levels
+- `visual-weight-flow.png` — hierarchy as gravity
+- `lift-audit.png` — L.I.F.T. audit questions
+- `grid-systems.png` — four grids, whitespace
+- `proportion.png` — thirds, golden, baseline
+- `friction-good-vs-slop.png` — good friction vs slop
+
+Real frames (`references/visuals/frames/`):
+- `frame-basic-direction.png` — explicit pointers, level 1
+- `frame-layered-paths.png` — main + micro routes
+- `frame-flow-disruption.png` — one 45° interrupter
+- `frame-temporal-flow.png` — metered scroll pacing
+- `frame-break-grid.png` — type escaping grid
+- `frame-friction.png` — one focal point

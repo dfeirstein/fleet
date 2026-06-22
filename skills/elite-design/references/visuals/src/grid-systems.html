@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  .grids { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s5); }
+
+  .gpanel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: var(--s5); display: flex; flex-direction: column; gap: var(--s4);
+  }
+  .gname { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .gsub  { font-size: 13.5px; line-height: 1.45; color: var(--ink-3); min-height: 58px; }
+  .gsub strong { color: var(--accent); font-weight: 600; }
+  .gpanel svg { width: 100%; height: auto; display: block; }
+
+  /* whitespace inset */
+  .ws { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); }
+  .wspanel {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px;
+    padding: var(--s5) var(--s6); display: grid; grid-template-columns: auto 1fr; gap: var(--s6);
+    align-items: center;
+  }
+  .wspanel .copy { }
+  .wskind { font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+  .wsname { font-size: 19px; font-weight: 600; color: var(--ink); margin-top: 6px; }
+  .wsdesc { font-size: 14.5px; line-height: 1.5; color: var(--ink-2); margin-top: 8px; max-width: 300px; }
+  .wspanel svg { width: 250px; height: auto; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · grid</div>
+    <h1 class="title">Grid systems — pick the grid to the content</h1>
+    <p class="caption">
+      Four grids, four jobs. Draw the line-work first, then place content into it. Width is a hierarchy
+      lever, not just a fit constraint: <strong>spanning more columns reads as more important.</strong>
+    </p>
+  </header>
+
+  <section class="grids">
+    <!-- ───────────────── Column ───────────────── -->
+    <div class="gpanel">
+      <div class="gname">Column</div>
+      <div class="gsub">Vertical columns for text / macro-layout. <strong>Spanning = dominance.</strong></div>
+      <svg viewBox="0 0 300 264" xmlns="http://www.w3.org/2000/svg">
+        <!-- 4 column guides -->
+        <g fill="#15171B" stroke="#262A31" stroke-width="1.5">
+          <rect x="0"   y="8" width="54" height="248" rx="3"/>
+          <rect x="82"  y="8" width="54" height="248" rx="3"/>
+          <rect x="164" y="8" width="54" height="248" rx="3"/>
+          <rect x="246" y="8" width="54" height="248" rx="3"/>
+        </g>
+        <!-- block spanning columns 1–2 = dominant -->
+        <rect x="0" y="40" width="136" height="120" rx="6"
+              fill="rgba(242,178,62,0.14)" stroke="#F2B23E" stroke-width="2"/>
+        <text x="68" y="104" text-anchor="middle" font-family="Inter, sans-serif"
+              font-size="13" font-weight="700" fill="#F2B23E">spans 2</text>
+        <!-- a single-column block = subordinate -->
+        <rect x="246" y="170" width="54" height="60" rx="5"
+              fill="#1B1E23" stroke="#313640" stroke-width="1.5"/>
+        <text x="273" y="205" text-anchor="middle" font-family="Inter, sans-serif"
+              font-size="11" font-weight="600" fill="#71757E">1 col</text>
+      </svg>
+    </div>
+
+    <!-- ───────────────── Modular ───────────────── -->
+    <div class="gpanel">
+      <div class="gname">Modular</div>
+      <div class="gsub">Rows × columns = even cells, for galleries &amp; card systems.</div>
+      <svg viewBox="0 0 300 264" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="mod" width="75" height="62" patternUnits="userSpaceOnUse">
+            <rect x="2" y="2" width="71" height="58" rx="4" fill="#16181D" stroke="#2C313A" stroke-width="1.5"/>
+          </pattern>
+        </defs>
+        <rect x="0" y="8" width="300" height="248" fill="url(#mod)"/>
+      </svg>
+    </div>
+
+    <!-- ───────────────── Compound ───────────────── -->
+    <div class="gpanel">
+      <div class="gname">Compound</div>
+      <div class="gsub">A column page with a modular sub-grid inside one block (e.g. Amazon).</div>
+      <svg viewBox="0 0 300 264" xmlns="http://www.w3.org/2000/svg">
+        <!-- wide content column holding a 3×3 modular gallery -->
+        <rect x="0" y="8" width="196" height="248" rx="5" fill="#15171B" stroke="#313640" stroke-width="1.5"/>
+        <g fill="#1B1E23" stroke="#2C313A" stroke-width="1.4">
+          <rect x="12"  y="20"  width="54" height="68" rx="4"/>
+          <rect x="71"  y="20"  width="54" height="68" rx="4"/>
+          <rect x="130" y="20"  width="54" height="68" rx="4"/>
+          <rect x="12"  y="94"  width="54" height="68" rx="4"/>
+          <rect x="71"  y="94"  width="54" height="68" rx="4"/>
+          <rect x="130" y="94"  width="54" height="68" rx="4"/>
+          <rect x="12"  y="168" width="54" height="68" rx="4"/>
+          <rect x="71"  y="168" width="54" height="68" rx="4"/>
+          <rect x="130" y="168" width="54" height="68" rx="4"/>
+        </g>
+        <!-- narrow sidebar column -->
+        <rect x="212" y="8" width="88" height="248" rx="5" fill="#15171B" stroke="#313640" stroke-width="1.5"/>
+        <text x="256" y="136" text-anchor="middle" font-family="Inter, sans-serif"
+              font-size="11" font-weight="600" fill="#71757E">column</text>
+      </svg>
+    </div>
+
+    <!-- ───────────────── Isometric ───────────────── -->
+    <div class="gpanel">
+      <div class="gname">Isometric</div>
+      <div class="gsub">A diamond dot-grid for 3D / technical illustration.</div>
+      <svg viewBox="0 0 300 264" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="iso" width="52" height="30" patternUnits="userSpaceOnUse">
+            <path d="M0,15 L26,0 L52,15 L26,30 Z" fill="none" stroke="#2C313A" stroke-width="1.2"/>
+            <circle cx="26" cy="0"  r="1.5" fill="#5C616B"/>
+            <circle cx="0"  cy="15" r="1.5" fill="#5C616B"/>
+            <circle cx="52" cy="15" r="1.5" fill="#5C616B"/>
+            <circle cx="26" cy="30" r="1.5" fill="#5C616B"/>
+          </pattern>
+        </defs>
+        <rect x="0" y="8" width="300" height="248" fill="url(#iso)"/>
+        <!-- one amber iso cube to show the 3D use -->
+        <g stroke="#F2B23E" stroke-width="2" stroke-linejoin="round">
+          <path d="M150,102 L176,117 L150,132 L124,117 Z" fill="rgba(242,178,62,0.30)"/>
+          <path d="M124,117 L150,132 L150,164 L124,149 Z" fill="rgba(242,178,62,0.16)"/>
+          <path d="M150,132 L176,117 L176,149 L150,164 Z" fill="rgba(242,178,62,0.10)"/>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section class="ws">
+    <!-- macro whitespace: whole empty rows/cols -->
+    <div class="wspanel">
+      <div class="copy">
+        <div class="wskind">Macro whitespace</div>
+        <div class="wsname">Leave whole rows / cols empty</div>
+        <div class="wsdesc">Premium breathing room comes from emptying entire grid tracks, not shrinking gaps.</div>
+      </div>
+      <svg viewBox="0 0 250 170" xmlns="http://www.w3.org/2000/svg">
+        <!-- 5×3 grid; column 3 and row 2 left intentionally empty -->
+        <g fill="#1B1E23" stroke="#2C313A" stroke-width="1.4">
+          <rect x="4"   y="4"  width="40" height="44" rx="3"/>
+          <rect x="50"  y="4"  width="40" height="44" rx="3"/>
+          <rect x="142" y="4"  width="40" height="44" rx="3"/>
+          <rect x="188" y="4"  width="40" height="44" rx="3"/>
+          <rect x="4"   y="118" width="40" height="44" rx="3"/>
+          <rect x="50"  y="118" width="40" height="44" rx="3"/>
+          <rect x="142" y="118" width="40" height="44" rx="3"/>
+          <rect x="188" y="118" width="40" height="44" rx="3"/>
+        </g>
+        <!-- the emptied column + row, marked -->
+        <rect x="96" y="4" width="40" height="158" rx="4" fill="none" stroke="#F2B23E" stroke-width="1.6" stroke-dasharray="4 5"/>
+        <rect x="4" y="57" width="224" height="48" rx="4" fill="none" stroke="#F2B23E" stroke-width="1.6" stroke-dasharray="4 5"/>
+        <text x="116" y="92" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" font-weight="700" fill="#F2B23E">empty</text>
+      </svg>
+    </div>
+
+    <!-- micro whitespace: 3×4 → 6×6 subdivision -->
+    <div class="wspanel">
+      <div class="copy">
+        <div class="wskind">Micro whitespace</div>
+        <div class="wsname">Subdivide 3×4 → 6×6</div>
+        <div class="wsdesc">Finer cells give tight, even inter-element spacing. Use both: empty macro cells, tight micro cells.</div>
+      </div>
+      <svg viewBox="0 0 250 170" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="g34" width="36" height="40" patternUnits="userSpaceOnUse">
+            <rect x="0.75" y="0.75" width="34.5" height="38.5" fill="#16181D" stroke="#2C313A" stroke-width="1.2"/>
+          </pattern>
+          <pattern id="g66" width="18" height="20" patternUnits="userSpaceOnUse">
+            <rect x="0.6" y="0.6" width="16.8" height="18.8" fill="#16181D" stroke="#2C313A" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect x="2"   y="5" width="108" height="160" fill="url(#g34)" stroke="#313640" stroke-width="1.4"/>
+        <rect x="140" y="5" width="108" height="160" fill="url(#g66)" stroke="#313640" stroke-width="1.4"/>
+        <text x="56"  y="-1" font-family="Inter, sans-serif" font-size="0" fill="#71757E"></text>
+        <!-- arrow between -->
+        <g stroke="#F2B23E" stroke-width="2" fill="#F2B23E">
+          <line x1="116" y1="85" x2="132" y2="85"/>
+          <path d="M131,80 L139,85 L131,90 Z"/>
+        </g>
+        <text x="56"  y="160" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#71757E">3×4</text>
+        <text x="194" y="160" text-anchor="middle" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#71757E">6×6</text>
+      </svg>
+    </div>
+  </section>
+</div>
+</body>
+</html>

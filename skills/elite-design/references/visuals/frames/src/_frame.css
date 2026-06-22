@@ -1,0 +1,67 @@
+/* _frame.css — composite scaffold for VIDEO-FRAME teaching assets.
+ * Real video still on top, caption bar below in the LOCKED diagram language
+ * (dark canvas, ONE amber accent, one sans, 8-pt spacing). Links _diagram.css
+ * for the tokens so these sit in the same set as the hand-authored diagrams.
+ * The still itself stays UNALTERED — it is a real-world example, only framed. */
+
+.card {
+  width: 1600px;
+  padding: var(--s8);
+  background: radial-gradient(120% 90% at 18% 0%, #101216 0%, var(--bg) 60%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s6);
+}
+
+/* The captured video still — bordered, never recoloured or cropped here. */
+.still {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  line-height: 0;
+}
+.still img { width: 100%; height: auto; display: block; }
+
+/* Caption bar — the diagram chrome applied to a real frame. */
+.cap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: var(--s6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.cap-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s5);
+}
+.cap-head .eyebrow { font-size: 13px; }
+.cap-title {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-top: var(--s2);
+}
+.cap-desc {
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 1180px;
+}
+.cap-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s5);
+  border-top: 1px solid var(--border);
+  padding-top: var(--s4);
+}
+.tie { font-size: 14px; color: var(--ink-3); letter-spacing: 0.01em; }
+.tie b { color: var(--ink-2); font-weight: 600; }
+.credit { font-size: 13px; color: var(--ink-3); letter-spacing: 0.01em; white-space: nowrap; }

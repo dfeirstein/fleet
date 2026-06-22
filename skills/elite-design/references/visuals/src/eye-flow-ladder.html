@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  .ladder { position: relative; display: flex; flex-direction: column; }
+
+  /* The rail — one continuous line threading the six eye-stops, 1 → 6. */
+  .rail {
+    position: absolute; left: 35px; top: 52px; bottom: 52px; width: 2px;
+    background: linear-gradient(var(--border), var(--accent-line) 12%, var(--accent-line) 88%, var(--border));
+    opacity: 0.6;
+  }
+
+  .rung {
+    position: relative;
+    display: grid; grid-template-columns: 72px 1fr 300px;
+    gap: var(--s6); align-items: center;
+    padding: var(--s5) 0;
+    border-top: 1px solid var(--border);
+  }
+  .rung:first-of-type { border-top: 0; }
+
+  .node {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--surface-2); border: 2.5px solid var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .name { font-size: 23px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .def  { font-size: 16px; line-height: 1.5; color: var(--ink-2); margin-top: 5px; max-width: 720px; }
+  .def strong { color: var(--ink); font-weight: 600; }
+
+  .see {
+    justify-self: end; text-align: right;
+    font-size: 13px; color: var(--ink-3); letter-spacing: 0.01em; line-height: 1.45;
+  }
+  .see .k { display: block; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+            font-size: 11px; color: var(--ink-3); margin-bottom: 3px; }
+  .see code { font-family: var(--mono); color: var(--ink-2); font-size: 13px; }
+  .see.none code { color: var(--ink-3); font-style: normal; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · eye-flow</div>
+    <h1 class="title">Six levels of eye-flow — compose up the ladder</h1>
+    <p class="caption">
+      The index that ties the individual eye-flow visuals together. Each rung adds control over
+      <strong>where</strong> the eye goes and <strong>how long</strong> it stays — climb from 1 to 6,
+      and reach for the level the composition needs. The right column points to the visual that demonstrates it.
+    </p>
+  </header>
+
+  <section class="ladder">
+    <div class="rail"></div>
+
+    <div class="rung">
+      <div class="node">1</div>
+      <div>
+        <div class="name">Basic direction</div>
+        <div class="def">Explicit pointers — <strong>arrows, a subject&rsquo;s gaze, wayfinding lines</strong>. The eye follows where the content literally points.</div>
+      </div>
+      <div class="see"><span class="k">see</span><code>frame-basic-direction.png</code></div>
+    </div>
+
+    <div class="rung">
+      <div class="node">2</div>
+      <div>
+        <div class="name">Hierarchy-driven flow</div>
+        <div class="def">Visual <strong>weight is gravity</strong>; the eye falls large → medium → small. Build the route by scale &amp; contrast, not arrows.</div>
+      </div>
+      <div class="see"><span class="k">see</span><code>visual-weight-flow.png</code></div>
+    </div>
+
+    <div class="rung">
+      <div class="node">3</div>
+      <div>
+        <div class="name">Layered paths</div>
+        <div class="def"><strong>One main route + smaller micro-routes</strong>; balance them so a secondary path never overpowers the primary.</div>
+      </div>
+      <div class="see"><span class="k">see</span><code>frame-layered-paths.png</code></div>
+    </div>
+
+    <div class="rung">
+      <div class="node">4</div>
+      <div>
+        <div class="name">Implied motion</div>
+        <div class="def"><strong>Repetition, progressive scaling, tapering, or frozen action</strong> — direction with no moving parts.</div>
+      </div>
+      <div class="see none"><span class="k">see</span><code>no single frame — read the rule</code></div>
+    </div>
+
+    <div class="rung">
+      <div class="node">5</div>
+      <div>
+        <div class="name">Flow disruption</div>
+        <div class="def">One intentional interrupter — a square rotated <strong>45°</strong> in a grid of upright cards — the eye hits, pauses on, re-engages. Exactly one.</div>
+      </div>
+      <div class="see"><span class="k">see</span><code>frame-flow-disruption.png</code></div>
+    </div>
+
+    <div class="rung">
+      <div class="node">6</div>
+      <div>
+        <div class="name">Temporal flow</div>
+        <div class="def">Control <strong>WHEN</strong> the eye arrives and how long it lingers: <strong>Impact → Linger → Release</strong> (whitespace is the pause).</div>
+      </div>
+      <div class="see"><span class="k">see</span><code>frame-temporal-flow.png</code></div>
+    </div>
+  </section>
+
+  <footer class="legend" style="display:flex;gap:var(--s6);align-items:center;border-top:1px solid var(--border);padding-top:var(--s5)">
+    <div class="item" style="display:flex;align-items:center;gap:var(--s2)">
+      <span style="width:16px;height:16px;border-radius:50%;border:2.5px solid var(--accent);display:inline-block"></span>
+      <span class="tag">each amber node is one eye-flow level, threaded 1 → 6</span>
+    </div>
+    <div class="item"><span class="tag">compose UP — higher levels layer more control, not more decoration</span></div>
+  </footer>
+</div>
+</body>
+</html>

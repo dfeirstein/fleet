@@ -1,0 +1,38 @@
+{
+  "generatedAt": "2026-06-21",
+  "ttlDays": 7,
+  "entries": [
+    {
+      "name": "claude-opus-4-8",
+      "kind": "model",
+      "latest": "claude-opus-4-8",
+      "source": "https://platform.claude.com/docs/en/docs/about-claude/models/overview",
+      "fetchedAt": "2026-06-21",
+      "note": "Anthropic — Opus 4.8 (most capable; fleet workers + Captain)"
+    },
+    {
+      "name": "claude-sonnet-4-6",
+      "kind": "model",
+      "latest": "claude-sonnet-4-6",
+      "source": "https://platform.claude.com/docs/en/docs/about-claude/models/overview",
+      "fetchedAt": "2026-06-21",
+      "note": "Anthropic — Sonnet 4.6"
+    },
+    {
+      "name": "claude-haiku-4-5-20251001",
+      "kind": "model",
+      "latest": "claude-haiku-4-5-20251001",
+      "source": "https://platform.claude.com/docs/en/docs/about-claude/models/overview",
+      "fetchedAt": "2026-06-21",
+      "note": "Anthropic — Haiku 4.5 (alias claude-haiku-4-5)"
+    },
+    {
+      "name": "claude-fable-5",
+      "kind": "model",
+      "latest": "claude-fable-5",
+      "source": "https://platform.claude.com/docs/en/docs/about-claude/models/overview",
+      "fetchedAt": "2026-06-21",
+      "note": "Anthropic — Fable 5 (1M context; not used by fleet workers)"
+    }
+  ]
+}

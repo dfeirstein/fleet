@@ -1,11 +1,12 @@
 # Anti-AI-slop linter — PASS/FAIL
 
-A reviewable checklist a taste-judge runs against a **RENDERED** design (screenshot
-or live page) before calling it done. Each item is the generic LLM tell ("the mean")
-+ the fix. This is the skill's own proof artifact — **the design is not done until
-every applicable box passes** (mark N/A only when the context genuinely doesn't apply,
-e.g. dark-mode items on a light-only page). It covers all 25 mean tells, then
-adds anti-pattern catches.
+A reviewable checklist a **SEPARATE adversarial critic** — ideally a **DIFFERENT model**
+from the builder — runs against a **RENDERED** design (screenshot or live page) before
+calling it done; the generator never grades its own work (see SKILL.md → Process step 5,
+the taste gate). Each item is the generic LLM tell ("the mean") + the fix. This is the skill's own
+proof artifact — **the design is not done until every applicable box passes** (mark N/A
+only when the context genuinely doesn't apply, e.g. dark-mode items on a light-only page).
+It covers all 25 mean tells, then anti-pattern catches, then captured taste rules from review.
 
 **Remember the framing:** these ban the generic tells; they do NOT set direction.
 The brand brief decides palette/voice/art direction and wins any conflict. Don't
@@ -127,3 +128,43 @@ is just a new mean.
 - [ ] **Instrumented before launch** — load <3s on 4G, GA4/heatmaps live, drop-off
   hunted (for shippable production pages)? *(needs source/DOM/CSS, not render — mark N/A
   if screenshot-only)*
+
+## Layout & composition tells (from the layout guide)
+- [ ] **No "1920px-only" trap** — the composition still reads when **shrunk to mobile
+  or print**, not just at desktop width? A layout that breaks or goes illegible off its
+  one design size **fails Transferability**. *Fix: design mobile-first as a content
+  filter; verify the eye-flow + leverage point survive at small sizes and on dark/light.*
+- [ ] **No visual noise / bad friction** — no elements added only to **fill space**, no
+  **multiple competing focal points**, not too many fonts? *Fix: one leverage point won
+  by scale/contrast/isolation; push competitors back; one font family; cut until one
+  thing clearly wins.*
+- [ ] **No unrelenting rhythm** — not an all-dense-text or all-high-contrast wall with
+  **no breathing space** (reader fatigue)? *Fix: sequence Impact → Linger → Release;
+  let whitespace be the pause between beats, not wasted space.*
+
+## Captured taste rules (from review)
+Six concrete tells caught in a real design review, generalized to any brand. Same
+checkbox PASS/FAIL form — checked = the tell is absent.
+- [ ] **No visible grid line-work** — no drawn grid / blueprint overlay on the live
+  design; the modular grid GOVERNS alignment invisibly, it never draws itself? *Fix:
+  delete the overlay. Rare exception: a deliberate, brand-justified blueprint motif —
+  default is FAIL.*
+- [ ] **No decorative index counters** — no '01 / 02 / 03' eyebrow prefixes or
+  'FIG. 01'-style figure numbers used as decoration (the viewer already infers sequence)?
+  *Fix: drop them; KEEP functional numbers — prices, real stats, genuine how-it-works
+  step numbers.*
+- [ ] **Primary-action color present above the fold** — the reserved action color (the
+  ONE CTA color, e.g. the single red) is visible without scrolling? *Fix: a hero whose
+  only action is a ghost/outline button with no reserved-color CTA in view FAILs — put a
+  reserved-color CTA above the fold.*
+- [ ] **The one expressive grid-break READS** — the single intentional break (an
+  oversized numeral/graphic) is legible, not hidden behind a photo or otherwise occluded?
+  *Fix: clear what occludes it; the break stays legible yet subtle — never louder than
+  the headline or CTA.*
+- [ ] **Micro-interactions are consistent, not janky** — hover/focus/active don't
+  overshoot, lag, mix durations/easings, or fail to reset cleanly? *Fix: one easing
+  family, ~150–220ms, smooth reset, reduced-motion respected; a signature interaction
+  feels intentional, not weird.*
+- [ ] **Hero whitespace doesn't bury the offer** — active whitespace stays premium but
+  the subhead / price / primary booking action are NOT pushed entirely below the fold?
+  *Fix: keep the hero airy AND surface the offer + action at/above the fold.*

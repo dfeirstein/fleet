@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  .stage { position: relative; width: 1472px; height: 700px; }
+
+  /* Each block's WEIGHT = size + surface contrast. Heaviest reads first. */
+  .blk {
+    position: absolute;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: var(--s5);
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+  .blk .role { font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .blk .wt   { font-size: 13px; font-weight: 500; color: var(--ink-3);
+               letter-spacing: 0.02em; }
+
+  .blk.w1 { left: 0;    top: 30px;  width: 540px; height: 380px;
+            background: var(--surface-2); border-color: #313640; }
+  .blk.w1 .role { font-size: 30px; }
+  .blk.w2 { left: 800px; top: 70px;  width: 380px; height: 250px;
+            background: var(--surface); }
+  .blk.w2 .role { font-size: 22px; }
+  .blk.w3 { left: 250px; top: 480px; width: 280px; height: 170px;
+            background: var(--surface); }
+  .blk.w3 .role { font-size: 18px; color: var(--ink-2); }
+  .blk.w4 { left: 1010px; top: 470px; width: 200px; height: 150px;
+            background: #101216; }
+  .blk.w4 .role { font-size: 15px; color: var(--ink-2); }
+  .blk.w4 .wt { font-size: 12px; }
+
+  /* The eye-path + nodes sit above the blocks, never intercept them. */
+  .overlay { position: absolute; inset: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · eye-flow</div>
+    <h1 class="title">Hierarchy-driven flow — weight is gravity</h1>
+    <p class="caption">
+      Visual <strong>WEIGHT</strong> is a gravitational pull: the eye falls
+      <strong>large → medium → small</strong>. You build the route by scale &amp;
+      contrast — not by drawing arrows. The dotted path traces where the eye actually goes.
+    </p>
+  </header>
+
+  <div class="stage">
+    <div class="blk w1"><div class="role">Leverage point</div><div class="wt">largest · highest contrast · isolated</div></div>
+    <div class="blk w2"><div class="role">Supporting</div><div class="wt">medium weight</div></div>
+    <div class="blk w3"><div class="role">Detail</div><div class="wt">small weight</div></div>
+    <div class="blk w4"><div class="role">Aside</div><div class="wt">smallest</div></div>
+
+    <svg class="overlay" viewBox="0 0 1472 700" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" viewBox="0 0 12 12" refX="9" refY="6"
+                markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M1,1 L11,6 L1,11 Z" fill="#F2B23E"/>
+        </marker>
+      </defs>
+      <!-- eye-path: node centres 1(270,220) 2(990,195) 3(390,565) 4(1110,545);
+           last leg stops ~46px short of node 4 so the arrowhead reads into it -->
+      <polyline points="270,220 990,195 390,565 1064,546"
+                stroke="#F2B23E" stroke-width="3"
+                stroke-dasharray="1.5 11" stroke-linecap="round" stroke-linejoin="round"
+                marker-end="url(#arrow)"/>
+      <g font-family="Inter, sans-serif" font-weight="700" font-size="20" text-anchor="middle">
+        <circle cx="270"  cy="220" r="24" fill="#1B1E23" stroke="#F2B23E" stroke-width="2.5"/>
+        <text x="270" y="227" fill="#F2B23E">1</text>
+        <circle cx="990"  cy="195" r="24" fill="#1B1E23" stroke="#F2B23E" stroke-width="2.5"/>
+        <text x="990" y="202" fill="#F2B23E">2</text>
+        <circle cx="390"  cy="565" r="24" fill="#1B1E23" stroke="#F2B23E" stroke-width="2.5"/>
+        <text x="390" y="572" fill="#F2B23E">3</text>
+        <circle cx="1110" cy="545" r="24" fill="#1B1E23" stroke="#F2B23E" stroke-width="2.5"/>
+        <text x="1110" y="552" fill="#F2B23E">4</text>
+      </g>
+    </svg>
+  </div>
+
+  <footer class="legend" style="display:flex;gap:var(--s6);align-items:center;border-top:1px solid var(--border);padding-top:var(--s5)">
+    <div class="item" style="display:flex;align-items:center;gap:var(--s2)">
+      <span style="width:26px;height:0;border-top:3px dotted #F2B23E;display:inline-block"></span>
+      <span class="tag">eye-path (where attention travels)</span>
+    </div>
+    <div class="item" style="display:flex;align-items:center;gap:var(--s2)">
+      <span style="width:16px;height:16px;border-radius:50%;border:2.5px solid #F2B23E;display:inline-block"></span>
+      <span class="tag">eye-stop, in weight order 1 → 4</span>
+    </div>
+    <div class="item"><span class="tag">balance secondary paths so they never overpower the primary</span></div>
+  </footer>
+</div>
+</body>
+</html>

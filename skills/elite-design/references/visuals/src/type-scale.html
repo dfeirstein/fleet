@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  /* Each step IS real CSS at the real px — the specimen proves the math. */
+  .scale { display: flex; flex-direction: column; gap: 2px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 230px 1fr;
+    align-items: center;
+    gap: var(--s7);
+    padding: var(--s3) var(--s4);
+    border-radius: 10px;
+  }
+  .row.base {                       /* the single highlighted anchor row */
+    background: var(--accent-dim);
+    box-shadow: inset 3px 0 0 0 var(--accent);
+  }
+
+  .meta { text-align: right; }
+  .meta .role {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-2);
+  }
+  .meta .px {
+    font-size: 24px; font-weight: 600; color: var(--ink);
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+    margin-top: 2px;
+  }
+  .meta .ratio {
+    font-size: 13px; font-weight: 500; color: var(--ink-3);
+    font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+  .meta .basechip {
+    display: inline-block; margin-top: var(--s2);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--accent);
+  }
+
+  .specimen {
+    font-weight: 600; letter-spacing: -0.02em; color: var(--ink);
+    line-height: 1.0; white-space: nowrap;
+  }
+  .specimen.body { font-weight: 500; letter-spacing: 0; color: var(--ink-2); }
+
+  .legend {
+    display: flex; gap: var(--s6); align-items: center;
+    border-top: 1px solid var(--border); padding-top: var(--s5);
+  }
+  .legend .item { display: flex; align-items: center; gap: var(--s2); }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · type scale</div>
+    <h1 class="title">Major Third (×1.25) — base 20px</h1>
+    <p class="caption">
+      One sans family. Every size is <em>derived</em>, not eyeballed: start at 20px body,
+      multiply by 1.25 per step, round each to a whole pixel. Cap a site at ~6 working sizes.
+      Each row below is rendered at its <strong>real</strong> CSS size.
+    </p>
+  </header>
+
+  <section class="scale">
+    <div class="row">
+      <div class="meta"><div class="role">Display</div><div class="px">76px</div><div class="ratio">×1.25</div></div>
+      <div class="specimen" style="font-size:76px">Layout</div>
+    </div>
+    <div class="row">
+      <div class="meta"><div class="role">H1</div><div class="px">61px</div><div class="ratio">×1.25</div></div>
+      <div class="specimen" style="font-size:61px">Layout</div>
+    </div>
+    <div class="row">
+      <div class="meta"><div class="role">H2</div><div class="px">49px</div><div class="ratio">×1.25</div></div>
+      <div class="specimen" style="font-size:49px">Layout</div>
+    </div>
+    <div class="row">
+      <div class="meta"><div class="role">H3</div><div class="px">39px</div><div class="ratio">×1.25</div></div>
+      <div class="specimen" style="font-size:39px">Layout</div>
+    </div>
+    <div class="row">
+      <div class="meta"><div class="role">H4</div><div class="px">31px</div><div class="ratio">×1.25</div></div>
+      <div class="specimen" style="font-size:31px">Layout</div>
+    </div>
+    <div class="row">
+      <div class="meta"><div class="role">H5</div><div class="px">25px</div><div class="ratio">×1.25</div></div>
+      <div class="specimen" style="font-size:25px">Layout</div>
+    </div>
+    <div class="row base">
+      <div class="meta">
+        <div class="role">Body</div><div class="px">20px</div><div class="ratio">base</div>
+        <div class="basechip">base</div>
+      </div>
+      <div class="specimen body" style="font-size:20px">Layout — composition reads here first</div>
+    </div>
+    <div class="row">
+      <div class="meta"><div class="role">Caption</div><div class="px">16px</div><div class="ratio">÷1.25</div></div>
+      <div class="specimen body" style="font-size:16px">Layout — captions, metadata, fine print</div>
+    </div>
+  </section>
+
+  <footer class="legend">
+    <div class="item"><span class="sw" style="background:var(--accent)"></span><span class="tag">Anchor row — the 20px base every step is derived from</span></div>
+    <div class="item"><span class="tag">Body 16–20px floor · never 12/14px · round 22.5 → 24</span></div>
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  .props { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s5); align-items: stretch; }
+
+  .ppanel {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: var(--s5); display: flex; flex-direction: column; gap: var(--s4);
+  }
+  .pname { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .pnum  { font-size: 13.5px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .psub  { font-size: 14px; line-height: 1.5; color: var(--ink-3); min-height: 42px; }
+  .ppanel svg { width: 100%; height: auto; display: block; }
+
+  /* baseline-grid figure (real type on real row baselines) */
+  .bl { border: 1px solid var(--border); border-radius: 8px; background: #15171B; padding: 16px; }
+  .head-row {
+    height: 56px; border-bottom: 1.5px solid rgba(242,178,62,0.55);
+    display: flex; align-items: flex-end; justify-content: space-between;
+  }
+  .head-row .h { font-size: 38px; font-weight: 600; color: var(--ink); line-height: 1;
+                 letter-spacing: -0.02em; padding-bottom: 7px; }
+  .head-row .htag { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: 0.04em;
+                    padding-bottom: 10px; }
+  .bl-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 0; }
+  .bl-col { display: flex; flex-direction: column; }
+  .tline {
+    height: 28px; border-bottom: 1px solid rgba(242,178,62,0.20);
+    display: flex; align-items: flex-end;
+  }
+  .tline span { font-size: 12.5px; color: var(--ink-2); line-height: 1; padding-bottom: 5px; white-space: nowrap; }
+  .bl-foot { font-size: 12.5px; color: var(--ink-3); margin-top: 12px; line-height: 1.45; }
+  .bl-foot b { color: var(--ink-2); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · proportion</div>
+    <h1 class="title">Proportion &amp; alignment — start from math, then tweak</h1>
+    <p class="caption">
+      Three proportion systems, drawn to their real geometry. Set the math first to win tension and
+      alignment for free — then adjust to the content. None of these is a law; they are starting points.
+    </p>
+  </header>
+
+  <section class="props">
+    <!-- ───────────── Rule of thirds ───────────── -->
+    <div class="ppanel">
+      <div class="pname">Rule of thirds <span class="pnum">· 9 parts</span></div>
+      <div class="psub">Two lines each way → place the key element on an intersection, off-center.</div>
+      <svg viewBox="0 0 328 232" xmlns="http://www.w3.org/2000/svg">
+        <!-- photo frame -->
+        <rect x="4" y="4" width="320" height="212" rx="6" fill="#101216" stroke="#313640" stroke-width="1.6"/>
+        <!-- thirds: verticals at 110.67 & 217.33, horizontals at 74.67 & 145.33 -->
+        <g stroke="#3A4049" stroke-width="1.3">
+          <line x1="110.67" y1="4" x2="110.67" y2="216"/>
+          <line x1="217.33" y1="4" x2="217.33" y2="216"/>
+          <line x1="4" y1="74.67"  x2="324" y2="74.67"/>
+          <line x1="4" y1="145.33" x2="324" y2="145.33"/>
+        </g>
+        <!-- the three unused intersections -->
+        <g fill="#5C616B">
+          <circle cx="110.67" cy="74.67"  r="4.5"/>
+          <circle cx="110.67" cy="145.33" r="4.5"/>
+          <circle cx="217.33" cy="145.33" r="4.5"/>
+        </g>
+        <!-- dead-centre, marked as the placement to avoid -->
+        <g stroke="#5C616B" stroke-width="1.4">
+          <line x1="159" y1="105" x2="169" y2="115"/>
+          <line x1="169" y1="105" x2="159" y2="115"/>
+        </g>
+        <!-- the chosen power point -->
+        <circle cx="217.33" cy="74.67" r="15" fill="rgba(242,178,62,0.18)" stroke="#F2B23E" stroke-width="2"/>
+        <circle cx="217.33" cy="74.67" r="5.5" fill="#F2B23E"/>
+        <text x="217.33" y="104" text-anchor="middle" font-family="Inter, sans-serif"
+              font-size="11.5" font-weight="700" fill="#F2B23E">subject</text>
+      </svg>
+    </div>
+
+    <!-- ───────────── Golden ratio ───────────── -->
+    <div class="ppanel">
+      <div class="pname">Golden ratio <span class="pnum">· 1 : 1.618</span></div>
+      <div class="psub">Whirling squares + spiral — a starting split for sidebars &amp; crops, not a law.</div>
+      <svg viewBox="0 0 286 190" xmlns="http://www.w3.org/2000/svg">
+        <g transform="translate(12,14)">
+          <!-- golden rectangle 262 × 162 (262/162 = 1.617) -->
+          <rect x="0" y="0" width="262" height="162" rx="3" fill="#101216" stroke="#3A4049" stroke-width="1.6"/>
+          <!-- whirling-square divisions -->
+          <g stroke="#2F343D" stroke-width="1.2">
+            <line x1="162" y1="0"   x2="162" y2="162"/>
+            <line x1="162" y1="100" x2="262" y2="100"/>
+            <line x1="200" y1="100" x2="200" y2="162"/>
+            <line x1="162" y1="124" x2="200" y2="124"/>
+            <line x1="186" y1="100" x2="186" y2="124"/>
+          </g>
+          <!-- golden spiral: chained quarter-arcs, one per square -->
+          <path d="M0,162
+                   A162,162 0 0 1 162,0
+                   A100,100 0 0 1 262,100
+                   A62,62 0 0 1 200,162
+                   A38,38 0 0 1 162,124
+                   A24,24 0 0 1 186,100"
+                fill="none" stroke="#F2B23E" stroke-width="2.4" stroke-linecap="round"/>
+          <!-- ratio labels -->
+          <text x="81"  y="86"  text-anchor="middle" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="#71757E">1</text>
+          <text x="212" y="55"  text-anchor="middle" font-family="Inter, sans-serif" font-size="12" font-weight="600" fill="#71757E">0.618</text>
+        </g>
+      </svg>
+    </div>
+
+    <!-- ───────────── Baseline grid ───────────── -->
+    <div class="ppanel">
+      <div class="pname">Baseline grid <span class="pnum">· 28 / 14pt</span></div>
+      <div class="psub">Headline = a multiple of body leading, so lines snap and columns align.</div>
+      <div class="bl">
+        <div class="head-row">
+          <div class="h">Layout</div>
+          <div class="htag">28pt = 2 × 14pt</div>
+        </div>
+        <div class="bl-cols">
+          <div class="bl-col">
+            <div class="tline"><span>Every line of</span></div>
+            <div class="tline"><span>body copy snaps</span></div>
+            <div class="tline"><span>to the 14pt</span></div>
+            <div class="tline"><span>baseline below</span></div>
+            <div class="tline"><span>it — no drift,</span></div>
+            <div class="tline"><span>no eyeballing.</span></div>
+          </div>
+          <div class="bl-col">
+            <div class="tline"><span>Set the head-</span></div>
+            <div class="tline"><span>line at a whole</span></div>
+            <div class="tline"><span>multiple of the</span></div>
+            <div class="tline"><span>leading and the</span></div>
+            <div class="tline"><span>two columns</span></div>
+            <div class="tline"><span>stay aligned.</span></div>
+          </div>
+        </div>
+        <div class="bl-foot"><b>Amber lines = the 14pt baseline.</b> Lines align across both columns.</div>
+      </div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

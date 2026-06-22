@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="_diagram.css">
+<style>
+  .lift { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s5); }
+
+  .quad {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    padding: var(--s6); display: flex; flex-direction: column; gap: var(--s4);
+    min-height: 300px;
+  }
+  .lead { display: flex; align-items: baseline; gap: var(--s4); }
+  .letter {
+    font-size: 76px; font-weight: 700; color: var(--accent);
+    line-height: 0.9; letter-spacing: -0.04em;
+  }
+  .word { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+  .word .role {
+    display: block; font-size: 12px; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 4px;
+  }
+
+  .q { font-size: 20px; line-height: 1.5; color: var(--ink-2); }
+  .q strong { color: var(--ink); font-weight: 600; }
+
+  .fail {
+    margin-top: auto; border-top: 1px solid var(--border); padding-top: var(--s4);
+    font-size: 14.5px; line-height: 1.5; color: var(--ink-3);
+  }
+  .fail .lbl {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-2); margin-right: var(--s2);
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <header>
+    <div class="eyebrow">Elite-design · composition audit</div>
+    <h1 class="title">L.I.F.T. — audit any composition against four letters</h1>
+    <p class="caption">
+      Run a finished layout through four questions. Each must pass; a single failing letter is where
+      the composition leaks attention. The amber letter is the prompt, the question is the test,
+      and the last line is the tell that you failed it.
+    </p>
+  </header>
+
+  <section class="lift">
+    <div class="quad">
+      <div class="lead">
+        <div class="letter">L</div>
+        <div class="word"><span class="role">Leverage point</span>One thing wins</div>
+      </div>
+      <div class="q">Does <strong>ONE element clearly win</strong> — by scale, contrast, or isolation?</div>
+      <div class="fail"><span class="lbl">Fails if</span>two elements tie. Then there is no leverage point — dim, shrink, or space the competitor away until one wins.</div>
+    </div>
+
+    <div class="quad">
+      <div class="lead">
+        <div class="letter">I</div>
+        <div class="word"><span class="role">Internal rhythm</span>Beat + accent</div>
+      </div>
+      <div class="q">Does steady <strong>alignment set a calm beat</strong>, with one deliberate break as the accent?</div>
+      <div class="fail"><span class="lbl">Fails if</span>nothing repeats (no rhythm) or nothing breaks (monotony). Repetition sets the beat; one break is the emphasis.</div>
+    </div>
+
+    <div class="quad">
+      <div class="lead">
+        <div class="letter">F</div>
+        <div class="word"><span class="role">Friction &amp; flow</span>Grab, then breathe</div>
+      </div>
+      <div class="q">One intense <strong>focal point to grab</strong>, and <strong>whitespace to breathe</strong> — both, in sequence?</div>
+      <div class="fail"><span class="lbl">Fails if</span>it is all friction (fatigue) or all flow (the eye drifts). A layout needs both, sequenced — impact, then pause.</div>
+    </div>
+
+    <div class="quad">
+      <div class="lead">
+        <div class="letter">T</div>
+        <div class="word"><span class="role">Transferability</span>Survives anywhere</div>
+      </div>
+      <div class="q">Does it survive <strong>shrinking, dark / light bg, and mobile / print / motion</strong>?</div>
+      <div class="fail"><span class="lbl">Fails if</span>it only works at one size on one background. A composition that breaks off its design size is not done.</div>
+    </div>
+  </section>
+</div>
+</body>
+</html>
